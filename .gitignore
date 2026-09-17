@@ -1,2 +1,12 @@
+# all image files
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.bmp
+*.tiff
+*.webp
+
+# Project
 bin
 build

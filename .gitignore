@@ -10,3 +10,4 @@
 # Project
 bin
 build
+*.log

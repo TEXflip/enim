@@ -1,12 +1,14 @@
 #include <filesystem>
 
-#include "sokol_app.h"
-#include "sokol_gfx.h"
-#include "sokol_glue.h"
-#include "sokol_log.h"
+#include <sokol_app.h>
+#include <sokol_gfx.h>
+#include <sokol_glue.h>
+#include <sokol_log.h>
 
 #include "dispatcher.hpp"
 #include "image_view.hpp"
+#include "argparse.hpp"
+#include "logging.hpp"
 
 static void init() {
     sg_desc desc{};
@@ -29,8 +31,20 @@ static void cleanup() {
 }
 
 sapp_desc sokol_main(int argc, char* argv[]) {
-    if (argc == 2) {
-        std::filesystem::path image_path = argv[1];
+    ArgumentSettings settings = parse_args(argc, argv);
+    
+    if (settings.help) {
+        std::printf("Usage: %s [options]\n", argv[0]);
+        std::printf("Options:\n");
+        std::printf("  --help        Show this help message\n");
+        std::printf("  -d, --debug   Enable debug logging\n");
+        std::exit(0);
+    }
+
+    setup_logger(settings);
+
+    if (!settings.image_path.empty()) {
+        std::filesystem::path image_path = settings.image_path;
         dispatch(image_path);
     }
 

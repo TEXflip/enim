@@ -6,6 +6,8 @@
 #include <expected>
 #include <print>
 
+#include <plog/Log.h>
+
 #include "errors.hpp"
 #include "image_view.hpp"
 #include "formats.hpp"
@@ -50,7 +52,9 @@ void dispatch(std::filesystem::path image_path) {
     auto format_result = detect_format(image_path);
     if (!format_result) {
         auto error = format_result.error();
-        std::fprintf(stderr, "Error detecting format: %s\n", error.message.c_str());
+        PLOG_ERROR << "Error detecting format: " << error.message;
         std::exit(static_cast<int>(error.code));
     }
+    enim::FileFormat format = format_result.value();
+    PLOG_INFO << "Detected format: " << format.name.data();
 }

@@ -36,7 +36,12 @@ sapp_desc sokol_main(int argc, char* argv[]) {
     setup_logger(settings);
 
     if (!settings.image_path.empty()) {
-        dispatch(settings);
+        const auto& view_result = dispatch(settings);
+        if (!view_result) {
+            const auto& error = view_result.error();
+            PLOG_ERROR << error.message;
+            std::exit(static_cast<int>(error.code));
+        }
     }
 
     return (sapp_desc){

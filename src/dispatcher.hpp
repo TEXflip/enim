@@ -58,7 +58,7 @@ const std::expected<enim::FileFormat, enim::Error> detect_format(const std::file
         }
     }
 
-    return std::unexpected(enim::Error{default_error, "Format not supported"});
+    return std::unexpected(enim::Error{default_error, "Unknown image format"});
 }
 
 std::expected<std::unique_ptr<ImageView>, enim::Error> dispatch(const Settings& settings) {
@@ -69,15 +69,14 @@ std::expected<std::unique_ptr<ImageView>, enim::Error> dispatch(const Settings& 
     enim::FileFormat format = format_result.value();
 
     PLOG_INFO << "Detected format: " << format.name.data();
-    
-    
+
     auto header_factory_it = HEADER_MAP.find(format.name);
-    
+
     if (header_factory_it == HEADER_MAP.end())
-    return std::unexpected(enim::Error{enim::ErrorCode::FileOpenError, "Format not supported " + std::string(format.name.data())});
-    
+        return std::unexpected(enim::Error{enim::ErrorCode::FileOpenError, std::string(format.name.data()) + " Format not supported"});
+
     std::unique_ptr<enim::FileHeader> header = header_factory_it->second();
-    
+
     if (settings.force_normal_mode) {
         return std::expected<std::unique_ptr<ImageView>, enim::Error>{std::make_unique<NormalModeImageView>(*header)};
     }

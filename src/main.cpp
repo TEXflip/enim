@@ -7,7 +7,7 @@
 
 #include "dispatcher.hpp"
 #include "image_view.hpp"
-#include "argparse.hpp"
+#include "settings.hpp"
 #include "logging.hpp"
 
 static void init() {
@@ -31,21 +31,12 @@ static void cleanup() {
 }
 
 sapp_desc sokol_main(int argc, char* argv[]) {
-    ArgumentSettings settings = parse_args(argc, argv);
-    
-    if (settings.help) {
-        std::printf("Usage: %s [options]\n", argv[0]);
-        std::printf("Options:\n");
-        std::printf("  --help        Show this help message\n");
-        std::printf("  -d, --debug   Enable debug logging\n");
-        std::exit(0);
-    }
+    Settings settings = parse_args(argc, argv);
 
     setup_logger(settings);
 
     if (!settings.image_path.empty()) {
-        std::filesystem::path image_path = settings.image_path;
-        dispatch(image_path);
+        dispatch(settings);
     }
 
     return (sapp_desc){

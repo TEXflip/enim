@@ -1,9 +1,17 @@
+#pragma once
+
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <string_view>
+#include <unordered_map>
 
 namespace enim {
+
+struct FileHeader {
+    virtual std::size_t get_size() const = 0;
+    virtual std::array<std::size_t, 4> get_shape() const = 0; // B, H, W, C
+};
 
 struct FileSignature {
     std::array<std::uint8_t, 16> bytes{};
@@ -72,17 +80,17 @@ constexpr FileFormat FORMATS[] = {
     {"PPM (binary)", "image/x-portable-pixmap", {{'P', '6'}, 2, 0}},
 };
 
-#define COMPUTE_MAX_READ_SIZE(FORMATS_ARRAY)     \
-    []() -> std::size_t {                        \
-        std::size_t max_size = 0;                \
-        std::size_t max_offset = 0;              \
-        for (const auto &f : FORMATS_ARRAY) {    \
-            if (f.signature.size > max_size)     \
-                max_size = f.signature.size;     \
-            if (f.signature.offset > max_offset) \
-                max_offset = f.signature.offset; \
-        }                                        \
-        return max_size + max_offset;            \
+#define COMPUTE_MAX_READ_SIZE(FORMATS_ARRAY)                                                                                                         \
+    []() -> std::size_t {                                                                                                                            \
+        std::size_t max_size = 0;                                                                                                                    \
+        std::size_t max_offset = 0;                                                                                                                  \
+        for (const auto& f : FORMATS_ARRAY) {                                                                                                        \
+            if (f.signature.size > max_size)                                                                                                         \
+                max_size = f.signature.size;                                                                                                         \
+            if (f.signature.offset > max_offset)                                                                                                     \
+                max_offset = f.signature.offset;                                                                                                     \
+        }                                                                                                                                            \
+        return max_size + max_offset;                                                                                                                \
     }()
 
 // Compute the maximum number of bytes to read for any image format signature at compile time.

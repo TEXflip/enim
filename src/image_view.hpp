@@ -1,5 +1,7 @@
 #pragma once
+#include "formats.hpp"
 #include "linear_algebra.hpp"
+
 
 struct ImageView {
     virtual void update() = 0;
@@ -7,10 +9,10 @@ struct ImageView {
 };
 
 struct FastModeImageView : public ImageView {
-    FastModeImageView() {
-        
+    FastModeImageView(enim::FileHeader& header) {
+
     };
-    
+
     void update() override {
         // Fast mode update implementation
     }
@@ -21,6 +23,10 @@ struct FastModeImageView : public ImageView {
 };
 
 struct NormalModeImageView : public ImageView {
+    NormalModeImageView(enim::FileHeader& header) {
+
+    };
+
     void update() override {
         // Normal mode update implementation
     }

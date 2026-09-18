@@ -1,20 +1,33 @@
 #pragma once
+
 #include <cstdio>
 #include <cstring>
+#include <expected>
 #include <filesystem>
 #include <fstream>
-#include <expected>
+#include <functional>
 #include <print>
+#include <unordered_map>
 
 #include <plog/Log.h>
 
 #include "errors.hpp"
-#include "image_view.hpp"
 #include "formats.hpp"
+#include "image_view.hpp"
+#include "settings.hpp"
 
+#include "bmp.hpp"
+
+using FileHeaderFactory = std::function<std::unique_ptr<enim::FileHeader>()>;
+
+static const std::unordered_map<std::string_view, FileHeaderFactory> HEADER_MAP{{"BMP", []() { return std::make_unique<enim::BmpHeader>(); }}};
+
+/// @brief Detect the file format of the given image file based on its signature.
+/// @param path The path to the image file.
+/// @return An expected containing the detected FileFormat on success, or an Error on failure.
 const std::expected<enim::FileFormat, enim::Error> detect_format(const std::filesystem::path& path) {
     enim::ErrorCode default_error = enim::ErrorCode::FileOpenError;
-    
+
     std::ifstream file(path, std::ios::binary);
     if (!file) {
         return std::unexpected(enim::Error{default_error, "Couldn't open file"});
@@ -38,23 +51,44 @@ const std::expected<enim::FileFormat, enim::Error> detect_format(const std::file
         if (sig.offset + sig.size > available) {
             continue;
         }
-        
+
         // matched
         if (std::memcmp(signature_buffer.data() + sig.offset, sig.bytes.data(), sig.size) == 0) {
             return format;
         }
     }
 
-    return std::unexpected(enim::Error{default_error, "No matching format found"});
+    return std::unexpected(enim::Error{default_error, "Format not supported"});
 }
 
-void dispatch(std::filesystem::path image_path) {
-    auto format_result = detect_format(image_path);
-    if (!format_result) {
-        auto error = format_result.error();
-        PLOG_ERROR << "Error detecting format: " << error.message;
-        std::exit(static_cast<int>(error.code));
-    }
+std::expected<std::unique_ptr<ImageView>, enim::Error> dispatch(const Settings& settings) {
+    auto format_result = detect_format(settings.image_path);
+    if (!format_result)
+        return std::unexpected(format_result.error());
+
     enim::FileFormat format = format_result.value();
+
     PLOG_INFO << "Detected format: " << format.name.data();
+    
+    
+    auto header_factory_it = HEADER_MAP.find(format.name);
+    
+    if (header_factory_it == HEADER_MAP.end())
+    return std::unexpected(enim::Error{enim::ErrorCode::FileOpenError, "Format not supported " + std::string(format.name.data())});
+    
+    std::unique_ptr<enim::FileHeader> header = header_factory_it->second();
+    
+    if (settings.force_normal_mode) {
+        return std::expected<std::unique_ptr<ImageView>, enim::Error>{std::make_unique<NormalModeImageView>(*header)};
+    }
+
+    if (settings.force_fast_mode) {
+        return std::expected<std::unique_ptr<ImageView>, enim::Error>{std::make_unique<FastModeImageView>(*header)};
+    }
+
+    std::size_t size = header->get_size();
+
+    // TODO: read how much VRAM is available and decide between fast and normal mode based on that
+
+    return std::expected<std::unique_ptr<ImageView>, enim::Error>{std::make_unique<NormalModeImageView>(*header)};
 }

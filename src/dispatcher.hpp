@@ -20,7 +20,9 @@
 
 using FileHeaderFactory = std::function<std::unique_ptr<enim::FileReader>()>;
 
-static const std::unordered_map<std::string_view, FileHeaderFactory> HEADER_MAP{{"BMP", []() { return std::make_unique<enim::BmpReader>(); }}};
+static const std::unordered_map<std::string_view, FileHeaderFactory> HEADER_MAP{
+    {"BMP", []() { return std::make_unique<enim::BmpReader>(); }}
+};
 
 /// @brief Detect the file format of the given image file based on its signature.
 /// @param path The path to the image file.

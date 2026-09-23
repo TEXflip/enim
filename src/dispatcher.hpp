@@ -18,9 +18,9 @@
 
 #include "bmp.hpp"
 
-using FileHeaderFactory = std::function<std::unique_ptr<enim::FileHeader>()>;
+using FileHeaderFactory = std::function<std::unique_ptr<enim::FileReader>()>;
 
-static const std::unordered_map<std::string_view, FileHeaderFactory> HEADER_MAP{{"BMP", []() { return std::make_unique<enim::BmpHeader>(); }}};
+static const std::unordered_map<std::string_view, FileHeaderFactory> HEADER_MAP{{"BMP", []() { return std::make_unique<enim::BmpReader>(); }}};
 
 /// @brief Detect the file format of the given image file based on its signature.
 /// @param path The path to the image file.
@@ -61,7 +61,7 @@ const std::expected<enim::FileFormat, enim::Error> detect_format(const std::file
     return std::unexpected(enim::Error{default_error, "Unknown image format"});
 }
 
-std::expected<std::unique_ptr<ImageView>, enim::Error> dispatch(const Settings& settings) {
+std::expected<std::unique_ptr<enim::ImageView>, enim::Error> dispatch(const Settings& settings) {
     auto format_result = detect_format(settings.image_path);
     if (!format_result)
         return std::unexpected(format_result.error());
@@ -75,19 +75,24 @@ std::expected<std::unique_ptr<ImageView>, enim::Error> dispatch(const Settings& 
     if (header_factory_it == HEADER_MAP.end())
         return std::unexpected(enim::Error{enim::ErrorCode::FileOpenError, std::string(format.name.data()) + " Format not supported"});
 
-    std::unique_ptr<enim::FileHeader> header = header_factory_it->second();
+    std::unique_ptr<enim::FileReader> header = header_factory_it->second();
+
+    auto preload_result = header->load_header(settings.image_path);
+    if (!preload_result) {
+        return std::unexpected(preload_result.error());
+    }
 
     if (settings.force_normal_mode) {
-        return std::expected<std::unique_ptr<ImageView>, enim::Error>{std::make_unique<NormalModeImageView>(*header)};
+        return std::make_unique<enim::NormalModeImageView>(*header);
     }
 
     if (settings.force_fast_mode) {
-        return std::expected<std::unique_ptr<ImageView>, enim::Error>{std::make_unique<FastModeImageView>(*header)};
+        return std::make_unique<enim::FastModeImageView>(*header);
     }
 
     std::size_t size = header->get_size();
 
     // TODO: read how much VRAM is available and decide between fast and normal mode based on that
 
-    return std::expected<std::unique_ptr<ImageView>, enim::Error>{std::make_unique<NormalModeImageView>(*header)};
+    return std::make_unique<enim::FastModeImageView>(*header);
 }

@@ -5,10 +5,23 @@
 #include <cstdint>
 #include <string_view>
 #include <unordered_map>
+#include <filesystem>
 
 namespace enim {
 
-struct FileHeader {
+struct FileReader {
+    /// @brief Load the header of the image file, this function is the first run before any other of FileReader functions.
+    /// @param path The path to the image file.
+    /// @return An expected indicating success or containing an error.
+    virtual std::expected<void, enim::Error> load_header(const std::filesystem::path& path) = 0;
+    virtual bool is_streamable() const = 0;
+    virtual bool is_tilable() const = 0;
+    virtual bool is_compressed() const = 0;
+
+    virtual const std::uint8_t* get_buffer_mmap() = 0;
+
+    /// @brief Size that the Raw image buffer would occupy in memory.
+    /// @return The size in bytes.
     virtual std::size_t get_size() const = 0;
     virtual std::array<std::size_t, 4> get_shape() const = 0; // B, H, W, C
 };

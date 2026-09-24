@@ -1,22 +1,32 @@
+#ifdef DEBUG
+    #define RGFW_DEBUG
+#endif
+
+#define GL_SILENCE_DEPRECATION
+#define RGFW_OPENGL
+#define RGFW_IMPLEMENTATION
+#define RGL_LOAD_IMPLEMENTATION
+#include "RGFW.h"
+
+#ifdef RGFW_MACOS
+    #include <OpenGL/gl.h>
+#else
+    #include <GL/gl.h>
+#endif
+
 #include "dispatcher.hpp"
 #include "image_view.hpp"
 #include "settings.hpp"
 #include "logging.hpp"
 
-#define RGFW_IMPLEMENTATION
-#include "RGFW.h"
+#include "window/setup.hpp"
+#include "window/loop.hpp"
 
 #include <filesystem>
 
-void keyfunc(const RGFW_event* event) {
-    if (event->key.value == RGFW_keyEscape) {
-        RGFW_window_setShouldClose(event->common.win, 1);
-    }
-}
-
 int main(int argc, char* argv[]) {
     Settings settings = parse_args(argc, argv);
-    
+
     setup_logger(settings);
     
     if (!settings.image_path.empty()) {
@@ -28,31 +38,22 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    RGFW_init("example", 0); /* load OpenGL, Vulkan or EGL functions here with RGFW_initOpenGL, RGFW_initEGL or RGFW_initVulkan */
-    
-    RGFW_window* win = RGFW_createWindow("a window", 0, 0, 800, 600, RGFW_windowCenter | RGFW_windowNoResize);
-
-    RGFW_setEventCallback(RGFW_keyPressed, keyfunc); // you can use callbacks like this if you want
-
-    i32 mouseX, mouseY;
-
-    while (RGFW_window_shouldClose(win) == RGFW_FALSE) {
-        RGFW_event event;
-        while (RGFW_window_checkEvent(win, &event)) {  // or RGFW_pollEvents(); if you only want callbacks / state checking
-            RGFW_window_getMouse(win, &mouseX, &mouseY);
-
-            if (event.type == RGFW_mouseButtonPressed && event.button.value == RGFW_mouseLeft) {
-                printf("You clicked at x: %d, y: %d\n", mouseX, mouseY);
-            }
-        }
-
-        /* state checking */
-        if (RGFW_isMousePressed(RGFW_mouseRight)) {
-            printf("The right mouse button was clicked at x: %d, y: %d\n", mouseX, mouseY);
-        }
+    auto result = setup_window();
+    if (!result) {
+        const auto& error = result.error();
+        PLOG_ERROR << error.message;
+        std::exit(static_cast<int>(error.code));
     }
+    WindowData window_data = result.value();
 
-    RGFW_window_close(win);
+    main_loop(window_data);
+
+    glDeleteVertexArrays(1, &window_data.vao);
+    glDeleteBuffers(1, &window_data.vbo);
+    glDeleteBuffers(1, &window_data.ebo);
+    glDeleteProgram(window_data.main_program);
+
+    RGFW_window_close(window_data.win);
     RGFW_deinit();
 
     return 0;

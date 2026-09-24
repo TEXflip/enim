@@ -23,18 +23,15 @@ target_include_directories(enim PRIVATE
     third_party/vecmath
 )
 
-set(LINK_LIBRARIES plog::plog)
+set(LIBS plog::plog)
 
 if (WIN32)
-    set(LINK_LIBRARIES ${LINK_LIBRARIES} -lopengl32 -lgdi32)
+    set(LIBS ${LIBS} opengl32 gdi32)
+elseif(APPLE)
+    set(LIBS ${LIBS} "-framework OpenGL -framework Cocoa")
+else()
+    set(LIBS ${LIBS} X11 GL m Xrandr)
 endif()
 
-if (UNIX AND NOT APPLE)
-    set(LINK_LIBRARIES ${LINK_LIBRARIES} -lX11 -lGL -lm -lXrandr)
-endif()
 
-if (APPLE)
-    set(LINK_LIBRARIES ${LINK_LIBRARIES} "-framework Cocoa")
-endif()
-
-target_link_libraries(enim PRIVATE ${LINK_LIBRARIES})
+target_link_libraries(enim PRIVATE ${LIBS})

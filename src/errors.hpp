@@ -6,6 +6,9 @@ namespace enim {
 
 enum ErrorCode {
     FileOpenError = 1,
+    WindowCreationError = 2,
+    ShaderCompileError = 3,
+    ShaderLinkError = 4,
 };
 
 struct Error {

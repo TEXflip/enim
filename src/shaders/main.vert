@@ -1,5 +1,10 @@
 #version 330 core
+#extension GL_ARB_separate_shader_objects : enable
+
+layout(location = 0) in vec2 position;
+layout(location = 0) out vec2 frag_position;
 
 void main(void) {
-    gl_Position = vec4(gl_VertexID == 0 ? -1.0 : 1.0, gl_VertexID == 0 ? -1.0 : 1.0, 0.0, 1.0);
+    frag_position = position;
+    gl_Position = vec4(position, 0.0, 1.0);
 }

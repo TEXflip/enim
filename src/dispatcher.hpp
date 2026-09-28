@@ -19,6 +19,7 @@
 #include "bmp.hpp"
 
 using FileHeaderFactory = std::function<std::unique_ptr<enim::FileReader>()>;
+namespace enim {
 
 static const std::unordered_map<std::string_view, FileHeaderFactory> HEADER_MAP{
     {"BMP", []() { return std::make_unique<enim::BmpReader>(); }}
@@ -85,16 +86,18 @@ std::expected<std::unique_ptr<enim::ImageView>, enim::Error> dispatch(const Sett
     }
 
     if (settings.force_normal_mode) {
-        return std::make_unique<enim::NormalModeImageView>(*header);
+        return std::make_unique<enim::NormalModeImageView>(std::move(header));
     }
 
     if (settings.force_fast_mode) {
-        return std::make_unique<enim::FastModeImageView>(*header);
+        return std::make_unique<enim::FastModeImageView>(std::move(header));
     }
 
     std::size_t size = header->get_size();
 
     // TODO: read how much VRAM is available and decide between fast and normal mode based on that
 
-    return std::make_unique<enim::FastModeImageView>(*header);
+    return std::make_unique<enim::FastModeImageView>(std::move(header));
 }
+
+} // namespace enim

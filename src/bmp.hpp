@@ -44,7 +44,21 @@ struct BmpReader : public enim::FileReader {
         if (ec) {
             return std::unexpected(enim::Error{enim::ErrorCode::FileOpenError, ec.message()});
         }
+        if (map.size() < sizeof(header)) {
+            return std::unexpected(enim::Error{enim::ErrorCode::FileOpenError, "BMP file too small"});
+        }
         std::memcpy(&header, map.data(), sizeof(header));
+        
+        // Validate header
+        if (header.signature[0] != 'B' || header.signature[1] != 'M') {
+            return std::unexpected(enim::Error{enim::ErrorCode::FileOpenError, "Invalid BMP signature"});
+        }
+        if (header.width == 0 || header.height == 0) {
+            return std::unexpected(enim::Error{enim::ErrorCode::FileOpenError, "Invalid BMP dimensions"});
+        }
+        if (header.bits_per_pixel != 24 && header.bits_per_pixel != 32) {
+            return std::unexpected(enim::Error{enim::ErrorCode::FileOpenError, "Only 24-bit and 32-bit BMPs are supported"});
+        }
         return {};
     }
 
@@ -55,13 +69,24 @@ struct BmpReader : public enim::FileReader {
     bool is_compressed() const override { return header.compression_method != 0; }
 
     const std::uint8_t* get_buffer_mmap() override {
+        if (!map.is_mapped()) {
+            return nullptr;
+        }
+        if (header.file_offset_to_pixel_array >= map.size()) {
+            return nullptr;
+        }
         return (std::uint8_t*) map.data() + header.file_offset_to_pixel_array;
     }
 
-    std::size_t get_size() const override { return header.height * header.width * 4; }
+    std::size_t get_size() const override { 
+        // BMP rows are padded to 4-byte boundary
+        std::uint32_t bytes_per_pixel = header.bits_per_pixel / 8;
+        std::uint32_t row_size = ((header.width * header.bits_per_pixel + 31) / 32) * 4;
+        return header.height * row_size;
+    }
 
-    std::array<std::size_t, 4> get_shape() const override {
-        return {1, header.height, header.width, 4}; // B, H, W, C
+    Shape get_shape() const override {
+        return Shape{1, header.height, header.width, header.bits_per_pixel / 8}; // B, H, W, C (output will be RGBA)
     }
 };
 

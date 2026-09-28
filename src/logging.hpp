@@ -15,6 +15,7 @@ class CustomFormatter {
 };
 } // namespace plog
 
+namespace enim {
 inline void setup_logger(const Settings& settings) {
     if (settings.debug) {
         plog::init(plog::debug, "enim.log", 100000, 0); // 100MB one file
@@ -22,4 +23,6 @@ inline void setup_logger(const Settings& settings) {
     } else {
         plog::init<plog::CustomFormatter>(plog::error, plog::streamStdErr);
     }
-}
+} 
+
+} // namespace enim

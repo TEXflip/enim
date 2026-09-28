@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+namespace enim {
+
 /// @brief Structure to hold application settings parsed from command-line arguments.
 struct Settings {
     bool debug = false;
@@ -51,3 +53,5 @@ Settings parse_args(int argc, char* argv[]) {
 
     return settings;
 }
+
+} // namespace enim

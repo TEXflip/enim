@@ -9,6 +9,7 @@ enum ErrorCode {
     WindowCreationError = 2,
     ShaderCompileError = 3,
     ShaderLinkError = 4,
+    ImageLoadError = 5,
 };
 
 struct Error {

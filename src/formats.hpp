@@ -9,6 +9,13 @@
 
 namespace enim {
 
+struct Shape {
+    std::size_t batch;
+    std::size_t height;
+    std::size_t width;
+    std::size_t channels;
+};
+
 struct FileReader {
     /// @brief Load the header of the image file, this function is the first run before any other of FileReader functions.
     /// @param path The path to the image file.
@@ -23,7 +30,7 @@ struct FileReader {
     /// @brief Size that the Raw image buffer would occupy in memory.
     /// @return The size in bytes.
     virtual std::size_t get_size() const = 0;
-    virtual std::array<std::size_t, 4> get_shape() const = 0; // B, H, W, C
+    virtual Shape get_shape() const = 0; // B, H, W, C
 };
 
 struct FileSignature {

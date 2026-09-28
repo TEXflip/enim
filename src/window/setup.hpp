@@ -3,7 +3,7 @@
 #include <expected>
 
 #include "../shaders/shaders.hpp"
-#include "rglLoad.h"
+#include <glad/glad.h>
 
 /// @brief Retrieves the information log message for a given OpenGL shader or program.
 /// @param logfunction The OpenGL function used to get the info log (e.g., glGetShaderInfoLog or glGetProgramInfoLog).
@@ -22,13 +22,6 @@ std::string gl_get_infolog_message(void (*logfunction)(GLuint, GLsizei, GLsizei*
 /// @param type The type of the shader (e.g., GL_VERTEX_SHADER, GL_FRAGMENT_SHADER).
 /// @return The compiled shader ID on success, or an error on failure.
 std::expected<GLuint, enim::Error> create_shader(const char* shader_source_ptr, GLenum type) {
-    // std::ifstream shader_file(shader_path);
-    // if (!shader_file.is_open()) {
-    //     return std::unexpected(enim::Error{enim::ErrorCode::FileOpenError, "could not open shader file"});
-    // }
-    // std::string shader_source((std::istreambuf_iterator<char>(shader_file)), std::istreambuf_iterator<char>());
-    // const char* shader_source_ptr = shader_source.c_str();
-
     GLuint shader = glCreateShader(type);
     glShaderSource(shader, 1, &shader_source_ptr, NULL);
     glCompileShader(shader);
@@ -107,52 +100,4 @@ std::expected<std::tuple<GLuint, std::uint32_t, std::uint32_t, std::uint32_t>, e
     glBindVertexArray(0);
 
     return std::make_tuple(main_program, vao, vbo, ebo);
-}
-
-void keyfunc(const RGFW_event* event) {
-    if (event->key.value == RGFW_keyEscape) {
-        RGFW_window_setShouldClose(event->common.win, 1);
-    }
-}
-
-struct WindowData {
-    RGFW_window* win;
-    GLuint main_program;
-    std::uint32_t vao;
-    std::uint32_t vbo;
-    std::uint32_t ebo;
-};
-
-std::expected<WindowData, enim::Error> setup_window() {
-
-    RGFW_init("enim", RGFW_initOpenGL);
-
-    RGFW_glHints* hints = RGFW_getGlobalHints_OpenGL();
-    hints->major = 3;
-    hints->minor = 3;
-    RGFW_setGlobalHints_OpenGL(hints);
-
-    RGFW_windowFlags flags = RGFW_windowAllowDND | RGFW_windowCenter | RGFW_windowScaleToMonitor | RGFW_windowOpenGL;
-    RGFW_window* win = RGFW_createWindow("enim", 0, 0, 800, 600, flags);
-    if (!win) {
-        return std::unexpected(enim::Error{enim::ErrorCode::WindowCreationError, "could not create window"});
-    }
-
-    RGFW_setEventCallback(RGFW_keyPressed, keyfunc);
-
-    RGFW_window_makeCurrentContext_OpenGL(win);
-
-    if (RGL_loadGL3((RGLloadfunc)RGFW_getProcAddress_OpenGL)) {
-        return std::unexpected(enim::Error{enim::ErrorCode::WindowCreationError, "Failed to initialize GLAD"});
-    }
-
-    auto opengl_result = setup_main_glprogram();
-    if (!opengl_result) {
-        return std::unexpected(opengl_result.error());
-    }
-    auto [main_program, vao, vbo, ebo] = opengl_result.value();
-
-    glClearColor(0.0431f, 0.0431f, 0.0431f, 1.0f);
-
-    return WindowData{win, main_program, vao, vbo, ebo};
 }

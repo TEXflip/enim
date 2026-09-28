@@ -10,7 +10,7 @@
             "request": "launch",
             "program": "${workspaceFolder}/bin/enim.exe",
             "args": [
-                "test_images/Auguste Renoir - Dance at Le Moulin de la Galette.bmp"
+                "test_images/outer_wilds.bmp"
             ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",

@@ -10,20 +10,24 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 add_subdirectory(third_party/plog)
+add_subdirectory(third_party/glad)
 
 add_executable(enim
     src/main.cpp
+    third_party/glad/src/glad.c
 )
     
 target_compile_definitions(enim PRIVATE $<$<CONFIG:Debug>:DEBUG>) #ifdef DEBUG
-    
+
 target_include_directories(enim PRIVATE
+    third_party/glad/include
     third_party/RGFW
     third_party/mio
     third_party/vecmath
 )
 
-set(LIBS plog::plog)
+
+set(LIBS plog::plog glad)
 
 if (WIN32)
     set(LIBS ${LIBS} opengl32 gdi32)

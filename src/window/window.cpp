@@ -2,22 +2,41 @@
 #define RGFW_OPENGL
 #endif
 
+#include <chrono>
+
 #include <RGFW.h>
 
-#include <window/window.hpp>
 #include "../dispatcher.hpp"
-#include "../image_view.hpp"
 #include "../errors.hpp"
+#include "../image_view.hpp"
 #include "../logging.hpp"
-#include "setup.hpp"
 #include "gl_debug_helpers.hpp"
-#include <settings/settings.hpp>
+#include "setup.hpp"
 #include <plog/Log.h>
+#include <settings/settings.hpp>
+#include <window/window.hpp>
+
+#include <commctrl.h>
+
+#if defined(_WIN32) || defined(_WIN64)
+    #include <windows.h>
+#endif
+
+static LRESULT CALLBACK SubclassProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
+                                     UINT_PTR, DWORD_PTR ref) {
+    auto* self = reinterpret_cast<enim::Window*>(ref);
+    if (msg == WM_SIZE) {
+        self->redraw.store(true);
+        // self->width_.store(LOWORD(lp));
+        // self->height_.store(HIWORD(lp));
+        // self->resized_.store(true);
+    }
+    return DefSubclassProc(hwnd, msg, wp, lp);
+}
 
 namespace enim {
 
-Window::Window(enim::Settings& settings) 
-    : win(nullptr), main_program(0), vao(0), vbo(0), ebo(0), settings(settings) {}
+Window::Window(enim::Settings& settings) : win(nullptr), main_program(0), vao(0), vbo(0), ebo(0), settings(settings) {}
 
 Window::~Window() {
     glDeleteVertexArrays(1, &this->vao);
@@ -31,9 +50,8 @@ Window::~Window() {
     }
 }
 
-std::expected<void, enim::Error> Window::load_image()
-{
-    if (this->settings.image_path.empty()) 
+std::expected<void, enim::Error> Window::load_image() {
+    if (this->settings.image_path.empty())
         return std::unexpected(enim::Error{enim::ErrorCode::ImageLoadError, "image path is empty"});
 
     auto view_result = enim::dispatch(this->settings);
@@ -44,22 +62,22 @@ std::expected<void, enim::Error> Window::load_image()
     }
 
     this->image_view = std::move(view_result.value());
-    
+
     return std::expected<void, enim::Error>{};
 }
 
 void Window::create_texture() {
     glGenTextures(1, &this->main_image_texture);
     glBindTexture(GL_TEXTURE_2D, this->main_image_texture);
-    
+
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-    GLfloat borderColor[] = { 1.0f, 0.0f, 0.0f, 1.0f }; // Red border
+    GLfloat borderColor[] = {1.0f, 0.0f, 0.0f, 1.0f}; // Red border
     glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
-    
+
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    
+
     // DEBUG: Log texture parameters
     auto shape = this->image_view->reader().get_shape();
     auto buffer = this->image_view->reader().get_buffer_mmap();
@@ -70,19 +88,9 @@ void Window::create_texture() {
     PLOG_INFO << "Max texture size: " << max_tex_size << " pixels per side";
 
     GLint format = this->image_view->reader().get_shape().channels == 4 ? GL_RGBA : GL_RGB;
-    
-    glTexImage2D(
-        GL_TEXTURE_2D, 
-        0, 
-        format, 
-        shape.width, 
-        shape.height, 
-        0, 
-        format, 
-        GL_UNSIGNED_BYTE, 
-        buffer
-    );
-    
+
+    glTexImage2D(GL_TEXTURE_2D, 0, format, shape.width, shape.height, 0, format, GL_UNSIGNED_BYTE, buffer);
+
     GLenum err = glGetError();
     if (err != GL_NO_ERROR) {
         PLOG_ERROR << "GL Error in glTexImage2D: " << err;
@@ -97,7 +105,7 @@ std::expected<void, enim::Error> Window::setup() {
     hints->minor = 3;
     hints->profile = RGFW_glCore;
 #ifdef DEBUG
-    hints->debug   = RGFW_TRUE;
+    hints->debug = RGFW_TRUE;
 #endif
     RGFW_setGlobalHints_OpenGL(hints);
 
@@ -105,6 +113,9 @@ std::expected<void, enim::Error> Window::setup() {
 
     int window_width = 800;
     int window_height = 600;
+#ifdef DEBUG
+    flags |= RGFW_windowCenter;
+#else
     if (this->image_view) {
         auto shape = this->image_view->reader().get_shape();
         RGFW_monitor* mon = RGFW_getPrimaryMonitor();
@@ -115,8 +126,9 @@ std::expected<void, enim::Error> Window::setup() {
             window_height = shape.height;
         }
     }
+#endif
 
-    this->win = RGFW_createWindow("enim", 0, 0, window_width, window_height, flags);
+    this->win = RGFW_createWindow("enim", 20, 20, window_width, window_height, flags);
     if (!this->win) {
         return std::unexpected(enim::Error{enim::ErrorCode::WindowCreationError, "could not create window"});
     }
@@ -156,50 +168,98 @@ std::expected<void, enim::Error> Window::setup() {
 }
 
 void Window::dispatch_events(const RGFW_event& event) {
+    // PLOG_INFO << "Dispatching event of type: " << std::to_string(event.type);
     switch (event.type) {
-        case RGFW_windowResized:
-            this->on_resize(event);
-            break;
-        case RGFW_keyPressed:
-            this->on_key_pressed(event);
-            break;
+        case RGFW_windowResized:       this->on_resize(event);      break;
+        case RGFW_keyPressed:          this->on_key_pressed(event); break;
+        case RGFW_mouseMotion:         this->on_mouse_move(event);  break;
+        case RGFW_windowMoved:         this->on_window_move(event); break;
+        case RGFW_mouseButtonPressed:  this->on_mouse_down(event);  break;
+        case RGFW_mouseButtonReleased: this->on_mouse_up(event);    break;
         default:
-            PLOG_WARNING << "Unhandled event type: " << event.type;
+            // PLOG_WARNING << "Unhandled event type: " << std::to_string(event.type);
             break;
-    }       
+    }
 }
 
 void Window::run() {
-    if (this->image_view) 
+    if (this->image_view)
         this->create_texture();
-    
-    RGFW_event event;
 
+#if defined(_WIN32) || defined(_WIN64)
+    HWND hwnd = (HWND)RGFW_window_getHWND(this->win);
+    SetWindowSubclass(hwnd, SubclassProc, 1, reinterpret_cast<DWORD_PTR>(this));
+#endif
+
+    RGFW_window_makeCurrentContext_OpenGL(NULL);
+        
+    std::jthread render_thread([this](std::stop_token st) {
+        render_loop(st);
+    });
+
+    this->poll_events();
+    // std::jthread poll_thread([this](std::stop_token st)         
+        
+    render_thread.request_stop();
+}
+    
+void Window::poll_events() {
+    RGFW_event event;
     while (!RGFW_window_shouldClose(this->win)) {
         while (RGFW_window_checkEvent(win, &event))
             this->dispatch_events(event);
+    }
+}
 
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+void Window::draw() {
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
-        glUseProgram(this->main_program);
+    glUseProgram(this->main_program);
+    int w, h;
+    RGFW_window_getSize(this->win, &w, &h);
+    glViewport(0, 0, w, h);
 
-        if (this->main_image_texture > 0) {
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, this->main_image_texture);
+    if (this->main_image_texture > 0) {
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, this->main_image_texture);
+    }
+
+    glUniform1i(glGetUniformLocation(this->main_program, "image"), 0);
+
+    GLenum err = glGetError();
+    if (err != GL_NO_ERROR) {
+        PLOG_ERROR << "GL Error: " << err;
+    }
+
+    glBindVertexArray(this->vao);
+    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+
+    RGFW_window_swapBuffers_OpenGL(this->win);
+    glFlush();
+}
+
+void Window::render_loop(std::stop_token stop_token) {
+    RGFW_window_makeCurrentContext_OpenGL(this->win);
+    // RGFW_window_swapInterval_OpenGL(this->win, 1);
+
+    const auto frame_time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::duration<double>(1.0 / 60.0));
+
+    auto next_frame = std::chrono::steady_clock::now();
+
+    while (!stop_token.stop_requested()) {
+        if (this->redraw.exchange(false)) {
+            this->draw();
+            PLOG_INFO << "Redrawing window";
         }
-        
-        glUniform1i(glGetUniformLocation(this->main_program, "image"), 0);
 
-        GLenum err = glGetError();
-        if (err != GL_NO_ERROR) {
-            PLOG_ERROR << "GL Error: " << err;
+        next_frame += frame_time;
+        auto now = std::chrono::steady_clock::now();
+        if (next_frame > now) {
+            std::this_thread::sleep_until(next_frame);
         }
-        
-        glBindVertexArray(this->vao);
-        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
-
-        RGFW_window_swapBuffers_OpenGL(this->win);
-        glFlush();
+        else {
+            next_frame = now;   // we fell behind; don't try to "catch up" with a burst of frames
+        }
     }
 }
 

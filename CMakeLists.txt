@@ -40,7 +40,7 @@ target_include_directories(enim PRIVATE
 set(LIBS plog::plog glad)
 
 if (WIN32)
-    set(LIBS ${LIBS} opengl32 gdi32 shell32 user32 advapi32)
+    set(LIBS ${LIBS} opengl32 gdi32 shell32 user32 advapi32 comctl32)
 elseif(APPLE)
     set(LIBS ${LIBS} "-framework OpenGL -framework Cocoa")
 else()

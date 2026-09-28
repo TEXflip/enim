@@ -1,3 +1,4 @@
+#include <plog/Log.h>
 #include <window/window.hpp>
 #include <RGFW.h>
 
@@ -9,6 +10,24 @@ namespace enim {
     }
 
     void Window::on_resize(const RGFW_event& event) {
-        glViewport(0, 0, event.update.w, event.update.h);
+        PLOG_INFO << "Window resized to " << event.update.w << "x" << event.update.h;
+        if (event.update.w <= 0 || event.update.h <= 0) return; // minimized window
+        this->redraw.store(true);
+    }
+
+    void Window::on_mouse_move(const RGFW_event& event) {
+        // Handle mouse movement event
+    }
+
+    void Window::on_window_move(const RGFW_event& event) {
+        // Handle mouse movement event
+    }
+
+    void Window::on_mouse_down(const RGFW_event& event) {
+        // Handle mouse button down event
+    }
+
+    void Window::on_mouse_up(const RGFW_event& event) {
+        // Handle mouse button up event
     }
 };

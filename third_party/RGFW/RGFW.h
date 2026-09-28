@@ -161,6 +161,7 @@ int main() {
 		nonexistant_object (@DiarrheaMcgee)
 		AC Gaudette (@acgaudette)
 */
+#pragma once
 
 #if _MSC_VER
 	#pragma comment(lib, "gdi32")

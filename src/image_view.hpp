@@ -1,4 +1,5 @@
 #pragma once
+
 #include "formats.hpp"
 #include "linear_algebra.hpp"
 

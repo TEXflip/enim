@@ -30,6 +30,7 @@ struct BmpReader : public enim::FileReader {
 
     mio::mmap_source map; // read-only mapping
     BmpHeader header = {0};
+    Shape shape = {0, 0, 0, 0};
 
     BmpReader() = default;
     ~BmpReader() {
@@ -59,6 +60,9 @@ struct BmpReader : public enim::FileReader {
         if (header.bits_per_pixel != 24 && header.bits_per_pixel != 32) {
             return std::unexpected(enim::Error{enim::ErrorCode::FileOpenError, "Only 24-bit and 32-bit BMPs are supported"});
         }
+
+        shape = Shape{1, header.height, header.width, static_cast<std::size_t>(header.bits_per_pixel) / 8u};
+
         return {};
     }
 
@@ -85,8 +89,8 @@ struct BmpReader : public enim::FileReader {
         return header.height * row_size;
     }
 
-    Shape get_shape() const override {
-        return Shape{1, header.height, header.width, header.bits_per_pixel / 8}; // B, H, W, C (output will be RGBA)
+    const Shape& get_shape() const override {
+        return this->shape; // B, H, W, C (output will be RGBA)
     }
 };
 

@@ -11,11 +11,5 @@ void main(void) {
     // vec2 pos = pos_homogeneous.xy / pos_homogeneous.z;
 
     vec2 normalized_pos = (vUV + 1.0) / 2.0;
-    // DEBUG: Check if we're out of bounds
-    if (normalized_pos.x < 0.0 || normalized_pos.x > 1.0 || 
-        normalized_pos.y < 0.0 || normalized_pos.y > 1.0) {
-        FragColor = vec4(1.0, 0.0, 0.0, 1.0); // Red = out of bounds
-    } else {
-        FragColor = texture(image, normalized_pos);
-    }
+    FragColor = texture(image, normalized_pos);
 }

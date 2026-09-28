@@ -6,6 +6,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <filesystem>
+#include <errors.hpp>
 
 namespace enim {
 
@@ -30,7 +31,7 @@ struct FileReader {
     /// @brief Size that the Raw image buffer would occupy in memory.
     /// @return The size in bytes.
     virtual std::size_t get_size() const = 0;
-    virtual Shape get_shape() const = 0; // B, H, W, C
+    virtual const Shape& get_shape() const = 0; // B, H, W, C
 };
 
 struct FileSignature {

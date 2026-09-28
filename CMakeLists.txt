@@ -14,23 +14,33 @@ add_subdirectory(third_party/glad)
 
 add_executable(enim
     src/main.cpp
-    third_party/glad/src/glad.c
+    src/dispatcher.cpp
+    src/window/window.cpp
+    src/window/events.cpp
+    src/window/setup.cpp
+    src/window/gl_debug_helpers.cpp
+    src/window/rgfw.cpp
+    src/settings/settings.cpp
 )
     
-target_compile_definitions(enim PRIVATE $<$<CONFIG:Debug>:DEBUG>) #ifdef DEBUG
+target_compile_definitions(enim PRIVATE
+    RGFWDEF=
+    $<$<CONFIG:Debug>:DEBUG>
+) #ifdef DEBUG
 
 target_include_directories(enim PRIVATE
     third_party/glad/include
     third_party/RGFW
     third_party/mio
     third_party/vecmath
+    src
 )
 
 
 set(LIBS plog::plog glad)
 
 if (WIN32)
-    set(LIBS ${LIBS} opengl32 gdi32)
+    set(LIBS ${LIBS} opengl32 gdi32 shell32 user32 advapi32)
 elseif(APPLE)
     set(LIBS ${LIBS} "-framework OpenGL -framework Cocoa")
 else()

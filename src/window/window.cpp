@@ -16,25 +16,18 @@
 #include <settings/settings.hpp>
 #include <window/window.hpp>
 
-#include <commctrl.h>
-
-#if defined(_WIN32) || defined(_WIN64)
-    #include <windows.h>
-#endif
-
-static LRESULT CALLBACK SubclassProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp,
-                                     UINT_PTR, DWORD_PTR ref) {
-    auto* self = reinterpret_cast<enim::Window*>(ref);
-    if (msg == WM_SIZE) {
-        self->redraw.store(true);
-        // self->width_.store(LOWORD(lp));
-        // self->height_.store(HIWORD(lp));
-        // self->resized_.store(true);
-    }
-    return DefSubclassProc(hwnd, msg, wp, lp);
-}
 
 namespace enim {
+
+/// @brief Subclass procedure for handling window messages, specifically WM_SIZE for window resize events.
+/// @param hwnd Handle to the window.
+/// @param msg The message code.
+/// @param wp Additional message information (WPARAM).
+/// @param lp Additional message information (LPARAM).
+/// @param Unused parameter (UINT_PTR).
+/// @param ref Pointer to the Window instance.
+/// @return The result of the default window procedure.
+LRESULT CALLBACK SubclassProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR ref);
 
 Window::Window(enim::Settings& settings) : win(nullptr), main_program(0), vao(0), vbo(0), ebo(0), settings(settings) {}
 
@@ -87,9 +80,9 @@ void Window::create_texture() {
     PLOG_INFO << "Texture dimensions: " << shape.width << "x" << shape.height;
     PLOG_INFO << "Max texture size: " << max_tex_size << " pixels per side";
 
-    GLint format = this->image_view->reader().get_shape().channels == 4 ? GL_RGBA : GL_RGB;
+    // GLint format = this->image_view->reader().get_shape().channels == 4 ? GL_RGBA : GL_RGB;
 
-    glTexImage2D(GL_TEXTURE_2D, 0, format, shape.width, shape.height, 0, format, GL_UNSIGNED_BYTE, buffer);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, shape.width, shape.height, 0, GL_BGR, GL_UNSIGNED_BYTE, buffer);
 
     GLenum err = glGetError();
     if (err != GL_NO_ERROR) {
@@ -170,15 +163,29 @@ std::expected<void, enim::Error> Window::setup() {
 void Window::dispatch_events(const RGFW_event& event) {
     // PLOG_INFO << "Dispatching event of type: " << std::to_string(event.type);
     switch (event.type) {
-        case RGFW_windowResized:       this->on_resize(event);      break;
-        case RGFW_keyPressed:          this->on_key_pressed(event); break;
-        case RGFW_mouseMotion:         this->on_mouse_move(event);  break;
-        case RGFW_windowMoved:         this->on_window_move(event); break;
-        case RGFW_mouseButtonPressed:  this->on_mouse_down(event);  break;
-        case RGFW_mouseButtonReleased: this->on_mouse_up(event);    break;
-        default:
-            // PLOG_WARNING << "Unhandled event type: " << std::to_string(event.type);
-            break;
+#ifndef ENIM_OS_WIN
+    case RGFW_windowResized:
+        this->on_resize(event);
+        break;
+#endif
+    case RGFW_keyPressed:
+        this->on_key_pressed(event);
+        break;
+    case RGFW_mouseMotion:
+        this->on_mouse_move(event);
+        break;
+    case RGFW_windowMoved:
+        this->on_window_move(event);
+        break;
+    case RGFW_mouseButtonPressed:
+        this->on_mouse_down(event);
+        break;
+    case RGFW_mouseButtonReleased:
+        this->on_mouse_up(event);
+        break;
+    default:
+        // PLOG_WARNING << "Unhandled event type: " << std::to_string(event.type);
+        break;
     }
 }
 
@@ -186,23 +193,23 @@ void Window::run() {
     if (this->image_view)
         this->create_texture();
 
-#if defined(_WIN32) || defined(_WIN64)
+#ifdef ENIM_OS_WIN
     HWND hwnd = (HWND)RGFW_window_getHWND(this->win);
     SetWindowSubclass(hwnd, SubclassProc, 1, reinterpret_cast<DWORD_PTR>(this));
 #endif
 
     RGFW_window_makeCurrentContext_OpenGL(NULL);
-        
-    std::jthread render_thread([this](std::stop_token st) {
-        render_loop(st);
-    });
+
+    std::jthread render_thread([this](std::stop_token st) { render_loop(st); });
 
     this->poll_events();
-    // std::jthread poll_thread([this](std::stop_token st)         
-        
+    // std::jthread poll_thread([this](std::stop_token st)
+
+    this->redraw.store(true);
+    this->redraw.notify_one();
     render_thread.request_stop();
 }
-    
+
 void Window::poll_events() {
     RGFW_event event;
     while (!RGFW_window_shouldClose(this->win)) {
@@ -218,6 +225,7 @@ void Window::draw() {
     int w, h;
     RGFW_window_getSize(this->win, &w, &h);
     glViewport(0, 0, w, h);
+    PLOG_INFO << "Redrawing window" << " with size " << w << "x" << h;
 
     if (this->main_image_texture > 0) {
         glActiveTexture(GL_TEXTURE0);
@@ -242,24 +250,10 @@ void Window::render_loop(std::stop_token stop_token) {
     RGFW_window_makeCurrentContext_OpenGL(this->win);
     // RGFW_window_swapInterval_OpenGL(this->win, 1);
 
-    const auto frame_time = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::duration<double>(1.0 / 60.0));
-
-    auto next_frame = std::chrono::steady_clock::now();
-
     while (!stop_token.stop_requested()) {
-        if (this->redraw.exchange(false)) {
-            this->draw();
-            PLOG_INFO << "Redrawing window";
-        }
-
-        next_frame += frame_time;
-        auto now = std::chrono::steady_clock::now();
-        if (next_frame > now) {
-            std::this_thread::sleep_until(next_frame);
-        }
-        else {
-            next_frame = now;   // we fell behind; don't try to "catch up" with a burst of frames
-        }
+        this->redraw.wait(false);
+        this->redraw.store(false);
+        this->draw();
     }
 }
 

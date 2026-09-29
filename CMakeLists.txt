@@ -41,10 +41,13 @@ set(LIBS plog::plog glad)
 
 if (WIN32)
     set(LIBS ${LIBS} opengl32 gdi32 shell32 user32 advapi32 comctl32)
+    target_compile_definitions(enim PRIVATE ENIM_OS_WIN)
 elseif(APPLE)
     set(LIBS ${LIBS} "-framework OpenGL -framework Cocoa")
+    target_compile_definitions(enim PRIVATE ENIM_OS_MAC)
 else()
     set(LIBS ${LIBS} X11 GL m Xrandr)
+    target_compile_definitions(enim PRIVATE ENIM_OS_LINUX)
 endif()
 
 

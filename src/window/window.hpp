@@ -8,6 +8,14 @@
 #include <errors.hpp>
 #include <image_view.hpp>
 #include <thread>
+#include <semaphore>
+#include <atomic>
+#include <mutex>
+
+#ifdef ENIM_OS_WIN
+    #include <windows.h>
+    #include <commctrl.h>
+#endif
 
 struct RGFW_window;
 union RGFW_event;

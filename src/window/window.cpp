@@ -205,14 +205,15 @@ void Window::run() {
     this->poll_events();
     // std::jthread poll_thread([this](std::stop_token st)
 
+    render_thread.request_stop();
     this->redraw.store(true);
     this->redraw.notify_one();
-    render_thread.request_stop();
 }
 
 void Window::poll_events() {
     RGFW_event event;
     while (!RGFW_window_shouldClose(this->win)) {
+        RGFW_waitForEvent(RGFW_eventWaitNext);
         while (RGFW_window_checkEvent(win, &event))
             this->dispatch_events(event);
     }

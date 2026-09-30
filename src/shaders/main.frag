@@ -1,15 +1,15 @@
 #version 330 core
 
 uniform sampler2D image;
+uniform vec2 window_size;
+uniform vec2 image_size;
+uniform vec2 offset;
+uniform float zoom;
 
-// in mat3 T; // projection matrix
 in vec2 vUV;
 out vec4 FragColor;
 
 void main(void) {
-    // vec3 pos_homogeneous = T * vec3(gl_FragCoord.xy, 1.0);
-    // vec2 pos = pos_homogeneous.xy / pos_homogeneous.z;
-
-    vec2 normalized_pos = (vUV + 1.0) / 2.0;
-    FragColor = texture(image, normalized_pos);
+    vec2 uv = vUV * zoom + offset;
+    FragColor = texture(image, uv * window_size/image_size + 0.5);
 }

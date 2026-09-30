@@ -65,7 +65,7 @@ void Window::create_texture() {
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-    GLfloat borderColor[] = {1.0f, 0.0f, 0.0f, 1.0f}; // Red border
+    GLfloat borderColor[] = {0.0431f, 0.0431f, 0.0431f, 1.0f}; // Red border
     glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
 
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
@@ -104,7 +104,7 @@ std::expected<void, enim::Error> Window::setup() {
 
     RGFW_windowFlags flags = RGFW_windowAllowDND | RGFW_windowScaleToMonitor | RGFW_windowOpenGL;
 
-    int window_width = 800;
+    int window_width = 600;
     int window_height = 600;
 #ifdef DEBUG
     flags |= RGFW_windowCenter;
@@ -174,6 +174,9 @@ void Window::dispatch_events(const RGFW_event& event) {
     case RGFW_mouseMotion:
         this->on_mouse_move(event);
         break;
+    case RGFW_mouseScroll:
+        this->on_mouse_wheel(event);
+        break;
     case RGFW_windowMoved:
         this->on_window_move(event);
         break;
@@ -198,7 +201,7 @@ void Window::run() {
     SetWindowSubclass(hwnd, SubclassProc, 1, reinterpret_cast<DWORD_PTR>(this));
 #endif
 
-    RGFW_window_makeCurrentContext_OpenGL(NULL);
+    RGFW_window_makeCurrentContext_OpenGL(NULL); // free context from this thread
 
     std::jthread render_thread([this](std::stop_token st) { render_loop(st); });
 
@@ -219,21 +222,30 @@ void Window::poll_events() {
     }
 }
 
-void Window::draw() {
+inline void Window::draw() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glUseProgram(this->main_program);
     int w, h;
     RGFW_window_getSize(this->win, &w, &h);
     glViewport(0, 0, w, h);
-    PLOG_INFO << "Redrawing window" << " with size " << w << "x" << h;
+    PLOG_INFO << "draw: size " << w << "x" << h;
+
+    float offset_x = 0, offset_y = 0;
+    float zoom = 1;
+    Shape shape{1,0,0,0};
 
     if (this->main_image_texture > 0) {
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, this->main_image_texture);
+        shape = this->image_view->reader().get_shape();
     }
 
+    glUniform2f(glGetUniformLocation(this->main_program, "image_size"), (float)shape.width, (float)shape.height);
     glUniform1i(glGetUniformLocation(this->main_program, "image"), 0);
+    glUniform2f(glGetUniformLocation(this->main_program, "offset"), offset_x, offset_y);
+    glUniform1f(glGetUniformLocation(this->main_program, "zoom"), zoom);
+    glUniform2f(glGetUniformLocation(this->main_program, "window_size"), (float)w, (float)h);
 
     GLenum err = glGetError();
     if (err != GL_NO_ERROR) {
@@ -252,9 +264,9 @@ void Window::render_loop(std::stop_token stop_token) {
     // RGFW_window_swapInterval_OpenGL(this->win, 1);
 
     while (!stop_token.stop_requested()) {
+        this->draw();
         this->redraw.wait(false);
         this->redraw.store(false);
-        this->draw();
     }
 }
 

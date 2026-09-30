@@ -1,12 +1,11 @@
 #pragma once
 
 #include "formats.hpp"
-#include "linear_algebra.hpp"
 
 namespace enim {
 struct ImageView {
     virtual void update() = 0;
-    virtual void set_projection(Mat m) = 0;
+    // virtual void set_projection(Mat m) = 0;
     virtual void bind_buffer() = 0;
     virtual FileReader& reader() = 0;
 };
@@ -19,9 +18,9 @@ struct FastModeImageView : public ImageView {
         // Fast mode update implementation
     }
 
-    void set_projection(Mat m) override {
-        // Fast mode set projection implementation
-    }
+    // void set_projection(Mat m) override {
+    //     // Fast mode set projection implementation
+    // }
     
     void bind_buffer() override {
         // Fast mode bind buffer implementation
@@ -40,9 +39,9 @@ struct NormalModeImageView : public ImageView {
         // Normal mode update implementation
     }
 
-    void set_projection(Mat m) override {
-        // Normal mode set projection implementation
-    }
+    // void set_projection(Mat m) override {
+    //     // Normal mode set projection implementation
+    // }
     
     void bind_buffer() override {
         // Normal mode bind buffer implementation

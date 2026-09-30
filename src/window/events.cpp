@@ -40,6 +40,12 @@ void Window::on_mouse_move(const RGFW_event& event) {
     // Handle mouse movement event
 }
 
+void Window::on_mouse_wheel(const RGFW_event& event) {
+    // event.delta.x;
+    // event.delta.y;
+    PLOG_INFO << "Mouse wheel moved: (" << event.delta.x << ", " << event.delta.y << ")";
+}
+
 void Window::on_window_move(const RGFW_event& event) {
     // Handle mouse movement event
 }

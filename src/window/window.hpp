@@ -35,7 +35,7 @@ struct Window {
     std::unique_ptr<enim::ImageView> image_view = nullptr;
     enim::Settings& settings;
 
-    std::atomic<bool> redraw = true;
+    std::atomic<bool> redraw = false;
 
     Window(enim::Settings& settings);
     ~Window();
@@ -52,6 +52,7 @@ struct Window {
     void dispatch_events(const RGFW_event& event);
     void on_key_pressed(const RGFW_event& event);
     void on_mouse_move(const RGFW_event& event);
+    void on_mouse_wheel(const RGFW_event& event);
     void on_mouse_down(const RGFW_event& event);
     void on_mouse_up(const RGFW_event& event);
     void on_window_move(const RGFW_event& event);

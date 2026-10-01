@@ -1,4 +1,5 @@
 #include <RGFW.h>
+#include <cmath>
 #include <plog/Log.h>
 #include <window/window.hpp>
 
@@ -30,31 +31,52 @@ LRESULT CALLBACK SubclassProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PT
 void Window::on_resize(const RGFW_event& event) {
     if (event.update.w <= 0 || event.update.h <= 0)
         return;
-    if (!this->redraw.exchange(true)) {
-        this->redraw.notify_one();
-        PLOG_INFO << "Window resized to " << event.update.w << "x" << event.update.h;
-    }
-}
-
-void Window::on_mouse_move(const RGFW_event& event) {
-    // Handle mouse movement event
-}
-
-void Window::on_mouse_wheel(const RGFW_event& event) {
-    // event.delta.x;
-    // event.delta.y;
-    PLOG_INFO << "Mouse wheel moved: (" << event.delta.x << ", " << event.delta.y << ")";
+    this->request_redraw();
+    PLOG_DEBUG << "Window resized to " << event.update.w << "x" << event.update.h;
 }
 
 void Window::on_window_move(const RGFW_event& event) {
-    // Handle mouse movement event
+    
+}
+
+void Window::on_mouse_wheel(const RGFW_event& event) {
+    this->zoom -= event.delta.y * 0.1f; // Adjust zoom based on mouse wheel movement
+    this->request_redraw();
+    // PLOG_DEBUG << "Mouse wheel moved: (" << event.delta.x << ", " << event.delta.y << ")";
+}
+
+void Window::on_mouse_move(const RGFW_event& event) {
+    this->mouse_state.x = event.mouse.x;
+    this->mouse_state.y = event.mouse.y;
+    // PLOG_DEBUG << "Mouse moved to: (" << this->mouse_state.x << ", " << this->mouse_state.y << ")";
+    if (this->mouse_state.left_button_down) {
+        this->offset_x -= (this->mouse_state.x - this->mouse_state.last_LBD_x) * 0.01;
+        this->offset_y += (this->mouse_state.y - this->mouse_state.last_LBD_y) * 0.01;
+        this->mouse_state.last_LBD_x = this->mouse_state.x;
+        this->mouse_state.last_LBD_y = this->mouse_state.y;
+        this->request_redraw();
+    }
 }
 
 void Window::on_mouse_down(const RGFW_event& event) {
-    // Handle mouse button down event
+    if (event.button.value == RGFW_mouseLeft) {
+        this->mouse_state.left_button_down = true;
+        this->mouse_state.last_LBD_x = this->mouse_state.x;
+        this->mouse_state.last_LBD_y = this->mouse_state.y;
+    } else if (event.button.value == RGFW_mouseRight) {
+        this->mouse_state.right_button_down = true;
+        this->mouse_state.last_RBD_x = this->mouse_state.x;
+        this->mouse_state.last_RBD_y = this->mouse_state.y;
+    }
+    // PLOG_DEBUG << "Mouse State: (" << this->mouse_state.x << ", " << this->mouse_state.y << "), Left Button: " << this->mouse_state.left_button_down << ", Right Button: " << this->mouse_state.right_button_down;
 }
 
 void Window::on_mouse_up(const RGFW_event& event) {
-    // Handle mouse button up event
+    if (event.button.value == RGFW_mouseLeft) {
+        this->mouse_state.left_button_down = false;
+    } else if (event.button.value == RGFW_mouseRight) {
+        this->mouse_state.right_button_down = false;
+    }
+    // PLOG_DEBUG << "Mouse State: (" << this->mouse_state.x << ", " << this->mouse_state.y << "), Left Button: " << this->mouse_state.left_button_down << ", Right Button: " << this->mouse_state.right_button_down;
 }
 }; // namespace enim

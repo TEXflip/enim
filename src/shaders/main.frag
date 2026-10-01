@@ -10,6 +10,6 @@ in vec2 vUV;
 out vec4 FragColor;
 
 void main(void) {
-    vec2 uv = vUV * zoom + offset;
+    vec2 uv = vUV * exp(zoom) + offset;
     FragColor = texture(image, uv * window_size/image_size + 0.5);
 }

@@ -59,6 +59,11 @@ std::expected<void, enim::Error> Window::load_image() {
     return std::expected<void, enim::Error>{};
 }
 
+void Window::request_redraw() {
+    if (!this->redraw.exchange(true))
+        this->redraw.notify_one();
+}
+
 void Window::create_texture() {
     glGenTextures(1, &this->main_image_texture);
     glBindTexture(GL_TEXTURE_2D, this->main_image_texture);
@@ -231,8 +236,6 @@ inline void Window::draw() {
     glViewport(0, 0, w, h);
     PLOG_INFO << "draw: size " << w << "x" << h;
 
-    float offset_x = 0, offset_y = 0;
-    float zoom = 1;
     Shape shape{1,0,0,0};
 
     if (this->main_image_texture > 0) {
@@ -243,8 +246,8 @@ inline void Window::draw() {
 
     glUniform2f(glGetUniformLocation(this->main_program, "image_size"), (float)shape.width, (float)shape.height);
     glUniform1i(glGetUniformLocation(this->main_program, "image"), 0);
-    glUniform2f(glGetUniformLocation(this->main_program, "offset"), offset_x, offset_y);
-    glUniform1f(glGetUniformLocation(this->main_program, "zoom"), zoom);
+    glUniform2f(glGetUniformLocation(this->main_program, "offset"), this->offset_x, this->offset_y);
+    glUniform1f(glGetUniformLocation(this->main_program, "zoom"), this->zoom);
     glUniform2f(glGetUniformLocation(this->main_program, "window_size"), (float)w, (float)h);
 
     GLenum err = glGetError();

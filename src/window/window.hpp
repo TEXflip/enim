@@ -11,6 +11,7 @@
 #include <semaphore>
 #include <atomic>
 #include <mutex>
+#include <limits>
 
 #ifdef ENIM_OS_WIN
     #include <windows.h>
@@ -25,6 +26,18 @@ namespace enim {
 void on_key_pressed(const RGFW_event* event);
 void on_window_resized(const RGFW_event* event);
 
+struct MouseState {
+    float x = 0.0f;
+    float y = 0.0f;
+    bool left_button_down = false;
+    bool right_button_down = false;
+
+    float last_LBD_x = std::numeric_limits<float>::quiet_NaN();
+    float last_LBD_y = std::numeric_limits<float>::quiet_NaN();
+    float last_RBD_x = std::numeric_limits<float>::quiet_NaN();
+    float last_RBD_y = std::numeric_limits<float>::quiet_NaN();
+};
+
 struct Window {
     RGFW_window* win;
     GLuint main_program, main_image_texture = 0;
@@ -33,7 +46,11 @@ struct Window {
     std::uint32_t ebo;
 
     std::unique_ptr<enim::ImageView> image_view = nullptr;
-    enim::Settings& settings;
+    Settings& settings;
+    float zoom = 1.0f;
+    float offset_x = 0.0f;
+    float offset_y = 0.0f;
+    MouseState mouse_state;
 
     std::atomic<bool> redraw = false;
 
@@ -43,6 +60,7 @@ struct Window {
     std::expected<void, enim::Error> load_image();
     void create_texture();
     std::expected<void, enim::Error> setup();
+    void request_redraw();
     void poll_events();
     void draw();
     void run();

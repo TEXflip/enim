@@ -10,6 +10,7 @@ void Window::on_key_pressed(const RGFW_event& event) {
     }
 }
 
+#ifdef ENIM_OS_WIN
 LRESULT CALLBACK SubclassProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR ref) {
     auto* self = reinterpret_cast<enim::Window*>(ref);
     switch (msg) {
@@ -27,6 +28,7 @@ LRESULT CALLBACK SubclassProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PT
     }
     return DefSubclassProc(hwnd, msg, wp, lp);
 }
+#endif
 
 void Window::on_resize(const RGFW_event& event) {
     if (event.update.w <= 0 || event.update.h <= 0)

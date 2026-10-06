@@ -19,6 +19,7 @@
 
 namespace enim {
 
+#ifdef ENIM_OS_WIN
 /// @brief Subclass procedure for handling window messages, specifically WM_SIZE for window resize events.
 /// @param hwnd Handle to the window.
 /// @param msg The message code.
@@ -28,6 +29,7 @@ namespace enim {
 /// @param ref Pointer to the Window instance.
 /// @return The result of the default window procedure.
 LRESULT CALLBACK SubclassProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR ref);
+#endif
 
 Window::Window(enim::Settings& settings) : win(nullptr), main_program(0), vao(0), vbo(0), ebo(0), settings(settings) {}
 

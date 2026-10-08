@@ -19,7 +19,7 @@
             "displayName": "macos-x64",
             "binaryDir": "${sourceDir}/bin",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug"
+                "CMAKE_BUILD_TYPE": "Release"
             },
             "condition": {
                 "type": "equals",
@@ -38,6 +38,10 @@
                 "type": "equals",
                 "lhs": "${hostSystemName}",
                 "rhs": "Linux"
+            },
+            "environment": {
+                "CC": "/opt/gcc-16/bin/gcc",
+                "CXX": "/opt/gcc-16/bin/g++"
             }
         },
         {
@@ -45,12 +49,16 @@
             "displayName": "linux-x64",
             "binaryDir": "${sourceDir}/bin",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug"
+                "CMAKE_BUILD_TYPE": "Release"
             },
             "condition": {
                 "type": "equals",
                 "lhs": "${hostSystemName}",
                 "rhs": "Linux"
+            },
+            "environment": {
+                "CC": "/opt/gcc-16/bin/gcc",
+                "CXX": "/opt/gcc-16/bin/g++"
             }
         },
         {
@@ -82,7 +90,7 @@
                 "strategy": "external"
             },
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Debug"
+                "CMAKE_BUILD_TYPE": "Release"
             },
             "environment": {
                 "PROJECT_ROOT": "${sourceDir}"

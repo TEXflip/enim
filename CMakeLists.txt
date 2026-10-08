@@ -46,9 +46,23 @@ elseif(APPLE)
     set(LIBS ${LIBS} "-framework OpenGL -framework Cocoa")
     target_compile_definitions(enim PRIVATE ENIM_OS_MAC)
 else()
+    # sudo apt install libx11-dev libxrandr-dev libxi-dev libxinerama-dev libxcursor-dev libxext-dev
     set(LIBS ${LIBS} X11 GL m Xrandr)
     target_compile_definitions(enim PRIVATE ENIM_OS_LINUX)
+
+    if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_link_options(enim PRIVATE -static-libstdc++ -static-libgcc)
+        if (CMAKE_BUILD_TYPE STREQUAL "Release")
+            add_compile_options(-fno-exceptions -fno-rtti)
+        endif()
+    endif()
 endif()
 
 
 target_link_libraries(enim PRIVATE ${LIBS})
+
+
+add_custom_command(TARGET enim POST_BUILD
+    COMMAND $<$<CONFIG:Release>:${CMAKE_STRIP}> $<$<CONFIG:Release>:$<TARGET_FILE:enim>>
+    COMMENT "Stripping enim (Release)"
+)

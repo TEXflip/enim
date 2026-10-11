@@ -4,12 +4,12 @@ uniform sampler2D image;
 uniform vec2 window_size;
 uniform vec2 image_size;
 uniform vec2 offset;
-uniform float zoom;
+uniform float scale;
 
-in vec2 frag_position;
+in vec2 vUV;
 out vec4 FragColor;
 
 void main(void) {
-    vec2 uv = frag_position * exp(zoom) + offset;
-    FragColor = texture(image, uv * window_size/image_size + 0.5);
+    vec2 uv = vUV * scale + offset;
+    FragColor = texture(image, uv * 0.5 * window_size/image_size + 0.5);
 }

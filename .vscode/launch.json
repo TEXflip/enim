@@ -8,9 +8,9 @@
             "name": "(gdb) Launch",
             "type": "cppdbg",
             "request": "launch",
-            "program": "${workspaceFolder}/bin/enim.exe",
+            "program": "${workspaceFolder}/bin/enim",
             "args": [
-                "test_images/outer_wilds.bmp"
+                "test_images/testimage.bmp"
             ],
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}",

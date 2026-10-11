@@ -31,6 +31,8 @@ LRESULT CALLBACK SubclassProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PT
 #endif
 
 void Window::on_resize(const RGFW_event& event) {
+    this->window_state.size_x = static_cast<float>(event.update.w);
+    this->window_state.size_y = static_cast<float>(event.update.h);
     if (event.update.w <= 0 || event.update.h <= 0)
         return;
     this->request_redraw();
@@ -42,9 +44,19 @@ void Window::on_window_move(const RGFW_event& event) {
 }
 
 void Window::on_mouse_wheel(const RGFW_event& event) {
-    this->zoom -= event.delta.y * 0.1f; // Adjust zoom based on mouse wheel movement
+    float old_scale = std::exp(this->window_state.zoom);
+    this->window_state.zoom -= event.delta.y * 0.1f; // Adjust zoom based on mouse wheel movement
+    float new_scale = std::exp(this->window_state.zoom);
+
+    float mx = 2.0f * (this->mouse_state.x / (float)this->window_state.size_x) - 1.0f;
+    float my = 1.0f - 2.0f * (this->mouse_state.y / (float)this->window_state.size_y);
+    float factor = 1.0f / old_scale - 1.0f / new_scale;
+
+    this->window_state.offset_x += mx * factor;
+    this->window_state.offset_y += my * factor;
+
     this->request_redraw();
-    // PLOG_DEBUG << "Mouse wheel moved: (" << event.delta.x << ", " << event.delta.y << ")";
+    // PLOG_DEBUG << "scale: " << new_scale << " offset: (" << this->window_state.offset_x << ", " << this->window_state.offset_y << ")";
 }
 
 void Window::on_mouse_move(const RGFW_event& event) {
@@ -52,8 +64,8 @@ void Window::on_mouse_move(const RGFW_event& event) {
     this->mouse_state.y = event.mouse.y;
     // PLOG_DEBUG << "Mouse moved to: (" << this->mouse_state.x << ", " << this->mouse_state.y << ")";
     if (this->mouse_state.left_button_down) {
-        this->offset_x -= (this->mouse_state.x - this->mouse_state.last_LBD_x) * 0.01;
-        this->offset_y += (this->mouse_state.y - this->mouse_state.last_LBD_y) * 0.01;
+        this->window_state.offset_x -= (this->mouse_state.x - this->mouse_state.last_LBD_x) * 0.01;
+        this->window_state.offset_y += (this->mouse_state.y - this->mouse_state.last_LBD_y) * 0.01;
         this->mouse_state.last_LBD_x = this->mouse_state.x;
         this->mouse_state.last_LBD_y = this->mouse_state.y;
         this->request_redraw();
@@ -81,4 +93,4 @@ void Window::on_mouse_up(const RGFW_event& event) {
     }
     // PLOG_DEBUG << "Mouse State: (" << this->mouse_state.x << ", " << this->mouse_state.y << "), Left Button: " << this->mouse_state.left_button_down << ", Right Button: " << this->mouse_state.right_button_down;
 }
-}; // namespace enim
+} // namespace enim

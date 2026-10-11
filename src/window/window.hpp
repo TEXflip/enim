@@ -38,6 +38,14 @@ struct MouseState {
     float last_RBD_y = std::numeric_limits<float>::quiet_NaN();
 };
 
+struct WindowState {
+    float zoom = 1.0f;
+    float offset_x = 0.0f;
+    float offset_y = 0.0f;
+    int size_x = 0;
+    int size_y = 0;
+};
+
 struct Window {
     RGFW_window* win;
     GLuint main_program, main_image_texture = 0;
@@ -47,10 +55,8 @@ struct Window {
 
     std::unique_ptr<enim::ImageView> image_view = nullptr;
     Settings& settings;
-    float zoom = 1.0f;
-    float offset_x = 0.0f;
-    float offset_y = 0.0f;
     MouseState mouse_state;
+    WindowState window_state;
 
     std::atomic<bool> redraw = false;
 

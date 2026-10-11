@@ -15,6 +15,7 @@
 #include <plog/Log.h>
 #include <settings/settings.hpp>
 #include <window/window.hpp>
+#include <cmath>
 
 
 namespace enim {
@@ -81,10 +82,14 @@ void Window::create_texture() {
     // DEBUG: Log texture parameters
     auto shape = this->image_view->reader().get_shape();
     auto buffer = this->image_view->reader().get_buffer_mmap();
+    if (!buffer) {
+        PLOG_ERROR << "Failed to get image buffer";
+        return;
+    }
     GLint max_tex_size;
     glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max_tex_size);
 
-    PLOG_INFO << "Texture dimensions: " << shape.width << "x" << shape.height;
+    PLOG_INFO << "Image size (HxWxC): " << shape.height << "x" << shape.width << "x" << shape.channels;
     PLOG_INFO << "Max texture size: " << max_tex_size << " pixels per side";
 
     // GLint format = this->image_view->reader().get_shape().channels == 4 ? GL_RGBA : GL_RGB;
@@ -233,10 +238,8 @@ inline void Window::draw() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glUseProgram(this->main_program);
-    int w, h;
-    RGFW_window_getSize(this->win, &w, &h);
-    glViewport(0, 0, w, h);
-    PLOG_INFO << "draw: size " << w << "x" << h;
+    RGFW_window_getSize(this->win, &this->window_state.size_x, &this->window_state.size_y);
+    glViewport(0, 0, (int)this->window_state.size_x, (int)this->window_state.size_y);
 
     Shape shape{1,0,0,0};
 
@@ -246,11 +249,11 @@ inline void Window::draw() {
         shape = this->image_view->reader().get_shape();
     }
 
-    glUniform2f(glGetUniformLocation(this->main_program, "image_size"), (float)shape.width, (float)shape.height);
     glUniform1i(glGetUniformLocation(this->main_program, "image"), 0);
-    glUniform2f(glGetUniformLocation(this->main_program, "offset"), this->offset_x, this->offset_y);
-    glUniform1f(glGetUniformLocation(this->main_program, "zoom"), this->zoom);
-    glUniform2f(glGetUniformLocation(this->main_program, "window_size"), (float)w, (float)h);
+    glUniform2f(glGetUniformLocation(this->main_program, "image_size"), (float)shape.width, (float)shape.height);
+    glUniform2f(glGetUniformLocation(this->main_program, "offset"), this->window_state.offset_x, this->window_state.offset_y);
+    glUniform1f(glGetUniformLocation(this->main_program, "scale"), std::exp(this->window_state.zoom));
+    glUniform2f(glGetUniformLocation(this->main_program, "window_size"), this->window_state.size_x, this->window_state.size_y);
 
     GLenum err = glGetError();
     if (err != GL_NO_ERROR) {
@@ -258,7 +261,9 @@ inline void Window::draw() {
     }
 
     glBindVertexArray(this->vao);
-    glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+    glDrawArrays(GL_TRIANGLES, 0, 6);
+    glBindVertexArray(0);
+    // glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
     RGFW_window_swapBuffers_OpenGL(this->win);
     glFlush();

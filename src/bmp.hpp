@@ -34,21 +34,21 @@ struct BmpReader : public enim::FileReader {
 
     BmpReader() = default;
     ~BmpReader() {
-        if (map.is_mapped()) {
-            map.unmap();
+        if (this->map.is_mapped()) {
+            this->map.unmap();
         }
     }
 
     std::expected<void, enim::Error> load_header(const std::filesystem::path& path) override {
         std::error_code ec;
-        map.map(path.string(), ec);
+        this->map.map(path.string(), ec);
         if (ec) {
             return std::unexpected(enim::Error{enim::ErrorCode::FileOpenError, ec.message()});
         }
-        if (map.size() < sizeof(header)) {
+        if (this->map.size() < sizeof(header)) {
             return std::unexpected(enim::Error{enim::ErrorCode::FileOpenError, "BMP file too small"});
         }
-        std::memcpy(&header, map.data(), sizeof(header));
+        std::memcpy(&header, this->map.data(), sizeof(header));
         
         // Validate header
         if (header.signature[0] != 'B' || header.signature[1] != 'M') {
@@ -61,7 +61,7 @@ struct BmpReader : public enim::FileReader {
             return std::unexpected(enim::Error{enim::ErrorCode::FileOpenError, "Only 24-bit and 32-bit BMPs are supported"});
         }
 
-        shape = Shape{1, header.height, header.width, static_cast<std::size_t>(header.bits_per_pixel) / 8u};
+        this->shape = Shape{1, header.height, header.width, static_cast<std::size_t>(header.bits_per_pixel) / 8u};
 
         return {};
     }
@@ -73,13 +73,16 @@ struct BmpReader : public enim::FileReader {
     bool is_compressed() const override { return header.compression_method != 0; }
 
     const std::uint8_t* get_buffer_mmap() override {
-        if (!map.is_mapped()) {
+        if (!this->map.is_mapped()) {
             return nullptr;
         }
-        if (header.file_offset_to_pixel_array >= map.size()) {
+        if (header.file_offset_to_pixel_array >= this->map.size()) {
             return nullptr;
         }
-        return (std::uint8_t*) map.data() + header.file_offset_to_pixel_array;
+        // std::uint8_t* buffer = new std::uint8_t[this->shape.height * this->shape.width * this->shape.channels];
+        // std::memcpy(buffer, (std::uint8_t*) this->map.data() + header.file_offset_to_pixel_array, this->shape.height * this->shape.width * this->shape.channels);
+        return (std::uint8_t*) this->map.data() + header.file_offset_to_pixel_array;
+        // return buffer;
     }
 
     std::size_t get_size() const override { 

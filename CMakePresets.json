@@ -40,8 +40,8 @@
                 "rhs": "Linux"
             },
             "environment": {
-                "CC": "/opt/gcc-16/bin/gcc",
-                "CXX": "/opt/gcc-16/bin/g++"
+                "CC": "gcc-16",
+                "CXX": "g++-16"
             }
         },
         {
@@ -57,8 +57,8 @@
                 "rhs": "Linux"
             },
             "environment": {
-                "CC": "/opt/gcc-16/bin/gcc",
-                "CXX": "/opt/gcc-16/bin/g++"
+                "CC": "gcc-16",
+                "CXX": "g++-16"
             }
         },
         {

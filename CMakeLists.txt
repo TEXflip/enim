@@ -46,7 +46,7 @@ elseif(APPLE)
     set(LIBS ${LIBS} "-framework OpenGL -framework Cocoa")
     target_compile_definitions(enim PRIVATE ENIM_OS_MAC)
 else()
-    # sudo apt install libx11-dev libxrandr-dev libxi-dev libxinerama-dev libxcursor-dev libxext-dev
+    # sudo apt install libglx-dev libx11-dev libxrandr-dev libxi-dev libxinerama-dev libxcursor-dev libxext-dev libgl1-mesa-dev
     set(LIBS ${LIBS} X11 GL m Xrandr)
     target_compile_definitions(enim PRIVATE ENIM_OS_LINUX)
 

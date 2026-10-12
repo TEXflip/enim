@@ -39,7 +39,8 @@ struct MouseState {
 };
 
 struct WindowState {
-    float zoom = 1.0f;
+    float zoom = 0.0;
+    float scale = 1.0;
     float offset_x = 0.0f;
     float offset_y = 0.0f;
     int size_x = 0;

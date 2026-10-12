@@ -11,5 +11,5 @@ out vec4 FragColor;
 
 void main(void) {
     vec2 uv = vUV * scale + offset;
-    FragColor = texture(image, uv * 0.5 * window_size/image_size + 0.5);
+    FragColor = texture(image, uv * window_size/image_size);
 }

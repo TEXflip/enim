@@ -61,13 +61,13 @@ std::expected<std::tuple<GLuint, std::uint32_t, std::uint32_t, std::uint32_t>, e
 
     float vertices[] = {
         // Position      // UV
-        -1.0f, -1.0f,     0.0f, 0.0f,
-        1.0f, -1.0f,     1.0f, 0.0f,
-        1.0f,  1.0f,     1.0f, 1.0f,
+        -1.0f, -1.0f,     -0.5f, -0.5f,
+        1.0f, -1.0f,     0.5f, -0.5f,
+        1.0f,  1.0f,     0.5f, 0.5f,
 
-        -1.0f, -1.0f,     0.0f, 0.0f,
-        1.0f,  1.0f,     1.0f, 1.0f,
-        -1.0f,  1.0f,     0.0f, 1.0f
+        -1.0f, -1.0f,     -0.5f, -0.5f,
+        1.0f,  1.0f,     0.5f, 0.5f,
+        -1.0f,  1.0f,     -0.5f, 0.5f
     };
 
     std::uint32_t vao, vbo, ebo;

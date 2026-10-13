@@ -9,12 +9,24 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+set(CMAKE_C_VISIBILITY_PRESET hidden)
+set(CMAKE_CXX_VISIBILITY_PRESET hidden)
+set(CMAKE_VISIBILITY_INLINES_HIDDEN ON)
+
+include(CheckIPOSupported)
+check_ipo_supported(RESULT ipo_ok OUTPUT ipo_msg)
+if(ipo_ok)
+    set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+    message(STATUS "IPO supported")
+endif()
+
 add_subdirectory(third_party/plog)
 add_subdirectory(third_party/glad)
 
 add_executable(enim
     src/main.cpp
     src/dispatcher.cpp
+    src/linalgebra.cpp
     src/window/window.cpp
     src/window/events.cpp
     src/window/setup.cpp
@@ -49,20 +61,21 @@ else()
     # sudo apt install libglx-dev libx11-dev libxrandr-dev libxi-dev libxinerama-dev libxcursor-dev libxext-dev libgl1-mesa-dev
     set(LIBS ${LIBS} X11 GL m Xrandr)
     target_compile_definitions(enim PRIVATE ENIM_OS_LINUX)
+endif()
 
-    if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        target_link_options(enim PRIVATE -static-libstdc++ -static-libgcc)
-        if (CMAKE_BUILD_TYPE STREQUAL "Release")
-            add_compile_options(-fno-exceptions -fno-rtti)
-        endif()
+if (CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_link_options(enim PRIVATE -static-libstdc++ -static-libgcc)
+    if (CMAKE_BUILD_TYPE STREQUAL "Release")
+        add_compile_options(-fno-exceptions -fno-rtti)
     endif()
 endif()
 
 
 target_link_libraries(enim PRIVATE ${LIBS})
 
-
-add_custom_command(TARGET enim POST_BUILD
-    COMMAND $<$<CONFIG:Release>:${CMAKE_STRIP}> $<$<CONFIG:Release>:$<TARGET_FILE:enim>>
-    COMMENT "Stripping enim (Release)"
-)
+if (CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_custom_command(TARGET enim POST_BUILD
+        COMMAND $<$<CONFIG:Release>:${CMAKE_STRIP}> $<$<CONFIG:Release>:$<TARGET_FILE:enim>>
+        COMMENT "Stripping enim (Release)"
+    )
+endif()

@@ -17,7 +17,6 @@
 #include <window/window.hpp>
 #include <cmath>
 
-
 namespace enim {
 
 #ifdef ENIM_OS_WIN
@@ -65,6 +64,20 @@ std::expected<void, enim::Error> Window::load_image() {
 void Window::request_redraw() {
     if (!this->redraw.exchange(true))
         this->redraw.notify_one();
+}
+
+void Window::center_image(bool fit_scale) {
+    if (!this->image_view)
+        return;
+
+    auto shape = this->image_view->reader().get_shape();
+    this->window_state.offset.x = (float)shape.width / 2.0f;
+    this->window_state.offset.y = (float)shape.height / 2.0f;
+
+    // if (fit_scale) {
+    //     this->window_state.scale = shape.width < shape.height ? static_cast<float>(shape.width) / static_cast<float>(this->window_state.size.x) : static_cast<float>(shape.height) / static_cast<float>(this->window_state.size.y);
+    //     this->window_state.zoom = std::log(this->window_state.scale);
+    // }
 }
 
 void Window::create_texture() {
@@ -128,13 +141,8 @@ std::expected<void, enim::Error> Window::setup() {
             if (shape.width > mon->mode.w || shape.height > mon->mode.h)
             {
                 flags |= RGFW_windowMaximize;
-                this->window_state.scale = shape.width < shape.height ? static_cast<float>(shape.width) / static_cast<float>(mon->mode.w) : static_cast<float>(shape.height) / static_cast<float>(mon->mode.h);
-                this->window_state.zoom = std::log(this->window_state.scale);
-                if ((float)mon->mode.w / (float)mon->mode.h > shape.width / shape.height) {
-                    this->window_state.offset_x = (0.25 * (static_cast<float>(mon->mode.w) - static_cast<float>(shape.width))) / static_cast<float>(mon->mode.w);
-                } else {
-                    this->window_state.offset_y = (0.25 * (static_cast<float>(mon->mode.h) - static_cast<float>(shape.height))) / static_cast<float>(mon->mode.h);
-                }
+                // this->window_state.scale = shape.width < shape.height ? static_cast<float>(shape.width) / static_cast<float>(mon->mode.w) : static_cast<float>(shape.height) / static_cast<float>(mon->mode.h);
+                // this->window_state.zoom = std::log(this->window_state.scale);
             }
         }
     }
@@ -145,8 +153,8 @@ std::expected<void, enim::Error> Window::setup() {
         return std::unexpected(enim::Error{enim::ErrorCode::WindowCreationError, "could not create window"});
     }
 
-    // RGFW_setEventCallback(RGFW_keyPressed, on_key_pressed);
-    // RGFW_setEventCallback(RGFW_windowResized, on_window_resized);
+    this->window_state.size.x = window_width;
+    this->window_state.size.y = window_height;
 
     RGFW_window_makeCurrentContext_OpenGL(this->win);
 
@@ -161,9 +169,6 @@ std::expected<void, enim::Error> Window::setup() {
     } else if (GLAD_GL_ARB_debug_output) {
         glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS_ARB);
         glDebugMessageCallbackARB(onGLDebugARB, NULL);
-
-        // optional: silence low-priority notifications
-        // glDebugMessageControlARB(GL_DONT_CARE, GL_DONT_CARE, GL_DEBUG_SEVERITY_LOW_ARB, 0, NULL, GL_FALSE);
     } else {
         PLOG_WARNING << "No debug output available; use GL_CHECK() with glGetError";
     }
@@ -213,7 +218,10 @@ void Window::dispatch_events(const RGFW_event& event) {
 
 void Window::run() {
     if (this->image_view)
+    {
         this->create_texture();
+        this->center_image();
+    }
 
 #ifdef ENIM_OS_WIN
     HWND hwnd = (HWND)RGFW_window_getHWND(this->win);
@@ -245,8 +253,8 @@ inline void Window::draw() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glUseProgram(this->main_program);
-    RGFW_window_getSize(this->win, &this->window_state.size_x, &this->window_state.size_y);
-    glViewport(0, 0, (int)this->window_state.size_x, (int)this->window_state.size_y);
+    RGFW_window_getSize(this->win, &this->window_state.size.x, &this->window_state.size.y);
+    glViewport(0, 0, (int)this->window_state.size.x, (int)this->window_state.size.y);
 
     Shape shape{1,0,0,0};
 
@@ -256,11 +264,14 @@ inline void Window::draw() {
         shape = this->image_view->reader().get_shape();
     }
 
+    Vec2f Ws((float)this->window_state.size.x, (float)this->window_state.size.y);
+    Vec2f Is((float)shape.width, (float)shape.height);
+    Vec2f scale_v = this->window_state.scale * Ws / Is;
+    Vec2f offset = this->window_state.scale * this->window_state.offset / Is;
+
     glUniform1i(glGetUniformLocation(this->main_program, "image"), 0);
-    glUniform2f(glGetUniformLocation(this->main_program, "image_size"), (float)shape.width, (float)shape.height);
-    glUniform2f(glGetUniformLocation(this->main_program, "offset"), this->window_state.offset_x, this->window_state.offset_y);
-    glUniform1f(glGetUniformLocation(this->main_program, "scale"), std::exp(this->window_state.zoom));
-    glUniform2f(glGetUniformLocation(this->main_program, "window_size"), this->window_state.size_x, this->window_state.size_y);
+    glUniform2f(glGetUniformLocation(this->main_program, "offset"), offset.x, offset.y);
+    glUniform2f(glGetUniformLocation(this->main_program, "scale"), scale_v.x, scale_v.y);
 
     GLenum err = glGetError();
     if (err != GL_NO_ERROR) {

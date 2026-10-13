@@ -12,6 +12,8 @@
 #include <atomic>
 #include <mutex>
 #include <limits>
+#include <linalgebra.hpp>
+
 
 #ifdef ENIM_OS_WIN
     #include <windows.h>
@@ -27,24 +29,19 @@ void on_key_pressed(const RGFW_event* event);
 void on_window_resized(const RGFW_event* event);
 
 struct MouseState {
-    float x = 0.0f;
-    float y = 0.0f;
+    Vec2f position{0.0f, 0.0f};
     bool left_button_down = false;
     bool right_button_down = false;
 
-    float last_LBD_x = std::numeric_limits<float>::quiet_NaN();
-    float last_LBD_y = std::numeric_limits<float>::quiet_NaN();
-    float last_RBD_x = std::numeric_limits<float>::quiet_NaN();
-    float last_RBD_y = std::numeric_limits<float>::quiet_NaN();
+    Vec2f last_LBD_position{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
+    Vec2f last_RBD_position{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::quiet_NaN()};
 };
 
 struct WindowState {
     float zoom = 0.0;
     float scale = 1.0;
-    float offset_x = 0.0f;
-    float offset_y = 0.0f;
-    int size_x = 0;
-    int size_y = 0;
+    Vec2f offset{0.0f, 0.0f};
+    Vec2i size{0, 0};
 };
 
 struct Window {
@@ -72,6 +69,7 @@ struct Window {
     void draw();
     void run();
     void render_loop(std::stop_token stop_token);
+    void center_image(bool fit_scale = true);
 
     // Event handling functions
     void dispatch_events(const RGFW_event& event);

@@ -7,10 +7,7 @@
 #include <settings/settings.hpp>
 #include <errors.hpp>
 #include <image_view.hpp>
-#include <thread>
 #include <semaphore>
-#include <atomic>
-#include <mutex>
 #include <limits>
 #include <linalgebra.hpp>
 #include <algorithm>
@@ -25,9 +22,6 @@ struct RGFW_window;
 union RGFW_event;
 
 namespace enim {
-
-void on_key_pressed(const RGFW_event* event);
-void on_window_resized(const RGFW_event* event);
 
 struct ViewTransform {
     Vec2f window_size{1, 1};   // Ws, screen px
@@ -88,8 +82,6 @@ struct Window {
     MouseState mouse_state;
     ViewTransform window_state;
 
-    std::atomic<bool> redraw = false;
-
     Window(enim::Settings& settings);
     ~Window();
 
@@ -100,7 +92,6 @@ struct Window {
     void poll_events();
     void draw();
     void run();
-    void render_loop(std::stop_token stop_token);
 
     // Event handling functions
     void dispatch_events(const RGFW_event& event);

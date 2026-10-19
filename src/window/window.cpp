@@ -64,8 +64,7 @@ std::expected<void, enim::Error> Window::load_image() {
 }
 
 void Window::request_redraw() {
-    if (!this->redraw.exchange(true))
-        this->redraw.notify_one();
+    this->draw();
 }
 
 void Window::create_texture() {
@@ -214,16 +213,8 @@ void Window::run() {
     SetWindowSubclass(hwnd, SubclassProc, 1, reinterpret_cast<DWORD_PTR>(this));
 #endif
 
-    RGFW_window_makeCurrentContext_OpenGL(NULL); // free context from this thread
-
-    std::jthread render_thread([this](std::stop_token st) { render_loop(st); });
-
+    this->request_redraw();
     this->poll_events();
-    // std::jthread poll_thread([this](std::stop_token st)
-
-    render_thread.request_stop();
-    this->redraw.store(true);
-    this->redraw.notify_one();
 }
 
 void Window::poll_events() {
@@ -239,15 +230,11 @@ inline void Window::draw() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glUseProgram(this->main_program);
-    // RGFW_window_getSize(this->win, &this->window_state.window_size.x, &this->window_state.window_size.y);
     glViewport(0, 0, (int)this->window_state.window_size.x, (int)this->window_state.window_size.y);
-
-    Shape shape{1,0,0,0};
 
     if (this->main_image_texture > 0) {
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, this->main_image_texture);
-        shape = this->image_view->reader().get_shape();
     }
 
     Vec2f scale, offset;
@@ -265,21 +252,9 @@ inline void Window::draw() {
     glBindVertexArray(this->vao);
     glDrawArrays(GL_TRIANGLES, 0, 6);
     glBindVertexArray(0);
-    // glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
     RGFW_window_swapBuffers_OpenGL(this->win);
     glFlush();
-}
-
-void Window::render_loop(std::stop_token stop_token) {
-    RGFW_window_makeCurrentContext_OpenGL(this->win);
-    // RGFW_window_swapInterval_OpenGL(this->win, 1);
-
-    while (!stop_token.stop_requested()) {
-        this->draw();
-        this->redraw.wait(false);
-        this->redraw.store(false);
-    }
 }
 
 } // namespace enim

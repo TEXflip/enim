@@ -8,5 +8,7 @@ in vec2 vUV;
 out vec4 FragColor;
 
 void main(void) {
-    FragColor = texture(image, vUV * scale + offset);
+    vec2 uv = vUV * scale + offset;
+    uv.y = 1.0 - uv.y;
+    FragColor = texture(image, uv);
 }

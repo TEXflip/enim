@@ -1,6 +1,7 @@
 #pragma once
 
 #include "formats.hpp"
+#include <linalgebra.hpp>
 
 namespace enim {
 struct ImageView {

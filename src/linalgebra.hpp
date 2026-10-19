@@ -1,60 +1,123 @@
 #pragma once
+#include <concepts>
+#include <cstdint>
+#include <type_traits>
+#include <stdfloat>
+
+#ifdef __STDCPP_FLOAT32_T__
+using Scalar = std::float32_t;
+#else
+using Scalar = float;
+#endif
 
 template<typename T>
+concept Arithmetic = std::is_arithmetic_v<T>;
+
+template<Arithmetic T>
 struct Vec2 {
-    T x = static_cast<T>(0);
-    T y = static_cast<T>(0);
+    T x{};
+    T y{};
 
-    Vec2() = default;
-    Vec2(T x, T y) : x(x), y(y) {}
-    Vec2(const Vec2&) = default;
+    constexpr Vec2() = default;
+    constexpr Vec2(T x, T y) : x(x), y(y) {}
 
-    template<typename U>
-    Vec2(U x, U y) : x(static_cast<T>(x)), y(static_cast<T>(y)) {}
+    template<Arithmetic A, Arithmetic B>
+        requires (!std::same_as<A, T> || !std::same_as<B, T>)
+    constexpr Vec2(A x, B y) : x(static_cast<T>(x)), y(static_cast<T>(y)) {}
 
-    template<typename U>
-    Vec2& operator=(const Vec2<U>& other) {
-        x = static_cast<T>(other.x);
-        y = static_cast<T>(other.y);
+    template<Arithmetic U>
+        requires (!std::same_as<T, U>)
+    constexpr explicit(std::floating_point<U> && std::integral<T>)
+    Vec2(const Vec2<U>& o) : x(static_cast<T>(o.x)), y(static_cast<T>(o.y)) {}
+
+    template<Arithmetic U>
+        requires (!std::same_as<T, U>)
+    constexpr Vec2& operator=(const Vec2<U>& o) {
+        x = static_cast<T>(o.x);
+        y = static_cast<T>(o.y);
         return *this;
     }
 
-    bool operator==(const Vec2& other) const;
-    bool operator!=(const Vec2& other) const;
+    // Defined in Vec2.cpp
+    template<Arithmetic U> Vec2& operator+=(const Vec2<U>& o);
+    template<Arithmetic U> Vec2& operator-=(const Vec2<U>& o);
+    template<Arithmetic U> Vec2& operator*=(const Vec2<U>& o);
+    template<Arithmetic U> Vec2& operator/=(const Vec2<U>& o);
+    template<Arithmetic S> Vec2& operator*=(S s);
+    template<Arithmetic S> Vec2& operator/=(S s);
 
-    Vec2 operator+(const Vec2& other) const;
-    Vec2 operator-(const Vec2& other) const;
-    Vec2 operator*(const Vec2& other) const;
-    Vec2 operator/(const Vec2& other) const;
-
-    Vec2 operator+(T scalar) const;
-    Vec2 operator-(T scalar) const;
-    Vec2 operator*(T scalar) const;
-    Vec2 operator/(T scalar) const;
-
-    Vec2& operator+=(const Vec2& other);
-    Vec2& operator-=(const Vec2& other);
-    Vec2& operator*=(T scalar);
-    Vec2& operator/=(T scalar);
-
-    Vec2 operator-() const;
+    constexpr Vec2 operator-() const { return {static_cast<T>(-x), static_cast<T>(-y)}; }
+    constexpr Vec2 operator+() const { return *this; }
 };
 
-typedef Vec2<float> Vec2f;
-typedef Vec2<int> Vec2i;
+template<Arithmetic T> Vec2(T, T) -> Vec2<T>;
 
-template<typename T>
-inline Vec2<T> operator*(T scalar, const Vec2<T>& vec) {
-    return vec * scalar;
+using Vec2f = Vec2<Scalar>;
+using Vec2i = Vec2<std::int64_t>;
+
+namespace detail {
+    template<Arithmetic T, Arithmetic U>
+    using Common = Vec2<std::common_type_t<T, U>>;
 }
 
-template<typename T, typename U>
-inline Vec2<T> operator+(Vec2<T> lhs, const Vec2<U>& rhs) {
-    return Vec2<T>{lhs.x + static_cast<T>(rhs.x), lhs.y + static_cast<T>(rhs.y)};
-}
+// Defined in linalgebra.cpp
+#define VEC2_DECL_OP(OP)                                                          \
+template<Arithmetic T, Arithmetic U>                                              \
+detail::Common<T, U> operator OP(const Vec2<T>& a, const Vec2<U>& b);             \
+template<Arithmetic T, Arithmetic S>                                              \
+detail::Common<T, S> operator OP(const Vec2<T>& v, S s);                          \
+template<Arithmetic S, Arithmetic T>                                              \
+detail::Common<T, S> operator OP(S s, const Vec2<T>& v);
 
-template<typename T, typename U>
-inline Vec2<T> operator-(Vec2<T> lhs, const Vec2<U>& rhs) {
-    return Vec2<T>{lhs.x - static_cast<T>(rhs.x), lhs.y - static_cast<T>(rhs.y)};
-}
+VEC2_DECL_OP(+) VEC2_DECL_OP(-) VEC2_DECL_OP(*) VEC2_DECL_OP(/)
+#undef VEC2_DECL_OP
 
+template<Arithmetic T, Arithmetic U>
+bool operator==(const Vec2<T>& a, const Vec2<U>& b);
+
+// Extern template declarations to prevent implicit instantiation
+// and force use of explicit instantiations in linalgebra.cpp
+#define VEC2_EXTERN_VV(T, U) \
+    extern template Vec2<T>& Vec2<T>::operator+=<U>(const Vec2<U>&); \
+    extern template Vec2<T>& Vec2<T>::operator-=<U>(const Vec2<U>&); \
+    extern template Vec2<T>& Vec2<T>::operator*=<U>(const Vec2<U>&); \
+    extern template Vec2<T>& Vec2<T>::operator/=<U>(const Vec2<U>&); \
+    extern template Vec2<std::common_type_t<T, U>> operator+<T, U>(const Vec2<T>&, const Vec2<U>&); \
+    extern template Vec2<std::common_type_t<T, U>> operator-<T, U>(const Vec2<T>&, const Vec2<U>&); \
+    extern template Vec2<std::common_type_t<T, U>> operator*<T, U>(const Vec2<T>&, const Vec2<U>&); \
+    extern template Vec2<std::common_type_t<T, U>> operator/<T, U>(const Vec2<T>&, const Vec2<U>&); \
+    extern template bool operator==<T, U>(const Vec2<T>&, const Vec2<U>&);
+
+#define VEC2_EXTERN_VS(T, S) \
+    extern template Vec2<T>& Vec2<T>::operator*=<S>(S); \
+    extern template Vec2<T>& Vec2<T>::operator/=<S>(S); \
+    extern template Vec2<std::common_type_t<T, S>> operator+<T, S>(const Vec2<T>&, S); \
+    extern template Vec2<std::common_type_t<T, S>> operator-<T, S>(const Vec2<T>&, S); \
+    extern template Vec2<std::common_type_t<T, S>> operator*<T, S>(const Vec2<T>&, S); \
+    extern template Vec2<std::common_type_t<T, S>> operator/<T, S>(const Vec2<T>&, S); \
+    extern template Vec2<std::common_type_t<T, S>> operator+<S, T>(S, const Vec2<T>&); \
+    extern template Vec2<std::common_type_t<T, S>> operator-<S, T>(S, const Vec2<T>&); \
+    extern template Vec2<std::common_type_t<T, S>> operator*<S, T>(S, const Vec2<T>&); \
+    extern template Vec2<std::common_type_t<T, S>> operator/<S, T>(S, const Vec2<T>&);
+
+VEC2_EXTERN_VV(Scalar, Scalar)
+VEC2_EXTERN_VV(Scalar, std::int64_t)
+VEC2_EXTERN_VV(std::int64_t, Scalar)
+VEC2_EXTERN_VV(std::int64_t, std::int64_t)
+VEC2_EXTERN_VS(Scalar, int)
+VEC2_EXTERN_VS(Scalar, std::int64_t)
+VEC2_EXTERN_VS(Scalar, float)
+VEC2_EXTERN_VS(Scalar, double)
+#ifdef __STDCPP_FLOAT32_T__
+VEC2_EXTERN_VS(Scalar, Scalar)
+#endif
+VEC2_EXTERN_VS(std::int64_t, int)
+VEC2_EXTERN_VS(std::int64_t, std::int64_t)
+VEC2_EXTERN_VS(std::int64_t, float)
+VEC2_EXTERN_VS(std::int64_t, double)
+#ifdef __STDCPP_FLOAT32_T__
+VEC2_EXTERN_VS(std::int64_t, Scalar)
+#endif
+
+#undef VEC2_EXTERN_VV
+#undef VEC2_EXTERN_VS

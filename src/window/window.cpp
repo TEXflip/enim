@@ -57,6 +57,8 @@ std::expected<void, enim::Error> Window::load_image() {
     }
 
     this->image_view = std::move(view_result.value());
+    this->window_state.image_size = Vec2f{static_cast<float>(this->image_view->reader().get_shape().width),
+                                         static_cast<float>(this->image_view->reader().get_shape().height)};
 
     return std::expected<void, enim::Error>{};
 }
@@ -64,20 +66,6 @@ std::expected<void, enim::Error> Window::load_image() {
 void Window::request_redraw() {
     if (!this->redraw.exchange(true))
         this->redraw.notify_one();
-}
-
-void Window::center_image(bool fit_scale) {
-    if (!this->image_view)
-        return;
-
-    auto shape = this->image_view->reader().get_shape();
-    this->window_state.offset.x = (float)shape.width / 2.0f;
-    this->window_state.offset.y = (float)shape.height / 2.0f;
-
-    // if (fit_scale) {
-    //     this->window_state.scale = shape.width < shape.height ? static_cast<float>(shape.width) / static_cast<float>(this->window_state.size.x) : static_cast<float>(shape.height) / static_cast<float>(this->window_state.size.y);
-    //     this->window_state.zoom = std::log(this->window_state.scale);
-    // }
 }
 
 void Window::create_texture() {
@@ -153,8 +141,8 @@ std::expected<void, enim::Error> Window::setup() {
         return std::unexpected(enim::Error{enim::ErrorCode::WindowCreationError, "could not create window"});
     }
 
-    this->window_state.size.x = window_width;
-    this->window_state.size.y = window_height;
+    this->window_state.window_size.x = window_width;
+    this->window_state.window_size.y = window_height;
 
     RGFW_window_makeCurrentContext_OpenGL(this->win);
 
@@ -220,7 +208,7 @@ void Window::run() {
     if (this->image_view)
     {
         this->create_texture();
-        this->center_image();
+        this->window_state.fit();
     }
 
 #ifdef ENIM_OS_WIN
@@ -253,8 +241,8 @@ inline void Window::draw() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     glUseProgram(this->main_program);
-    RGFW_window_getSize(this->win, &this->window_state.size.x, &this->window_state.size.y);
-    glViewport(0, 0, (int)this->window_state.size.x, (int)this->window_state.size.y);
+    // RGFW_window_getSize(this->win, &this->window_state.window_size.x, &this->window_state.window_size.y);
+    glViewport(0, 0, (int)this->window_state.window_size.x, (int)this->window_state.window_size.y);
 
     Shape shape{1,0,0,0};
 
@@ -264,14 +252,12 @@ inline void Window::draw() {
         shape = this->image_view->reader().get_shape();
     }
 
-    Vec2f Ws((float)this->window_state.size.x, (float)this->window_state.size.y);
-    Vec2f Is((float)shape.width, (float)shape.height);
-    Vec2f scale_v = this->window_state.scale * Ws / Is;
-    Vec2f offset = this->window_state.scale * this->window_state.offset / Is;
+    Vec2f scale, offset;
+    this->window_state.uniforms(scale, offset);
 
     glUniform1i(glGetUniformLocation(this->main_program, "image"), 0);
     glUniform2f(glGetUniformLocation(this->main_program, "offset"), offset.x, offset.y);
-    glUniform2f(glGetUniformLocation(this->main_program, "scale"), scale_v.x, scale_v.y);
+    glUniform2f(glGetUniformLocation(this->main_program, "scale"), scale.x, scale.y);
 
     GLenum err = glGetError();
     if (err != GL_NO_ERROR) {

@@ -127,11 +127,9 @@ std::expected<void, enim::Error> Window::setup() {
         RGFW_monitor* mon = RGFW_getPrimaryMonitor();
         if (mon) {
             if (shape.width > mon->mode.w || shape.height > mon->mode.h)
-            {
                 flags |= RGFW_windowMaximize;
-                // this->window_state.scale = shape.width < shape.height ? static_cast<float>(shape.width) / static_cast<float>(mon->mode.w) : static_cast<float>(shape.height) / static_cast<float>(mon->mode.h);
-                // this->window_state.zoom = std::log(this->window_state.scale);
-            }
+            window_width = mon->mode.w;
+            window_height = mon->mode.h;
         }
     }
 #endif

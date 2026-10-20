@@ -107,11 +107,11 @@ std::expected<void, enim::Error> Window::setup() {
     hints->debug = this->settings.debug ? RGFW_TRUE : RGFW_FALSE;
     RGFW_setGlobalHints_OpenGL(hints);
 
-    Vec2i window_size = this->get_primary_monitor_size() / 2;
+    Vec2i window_size = {600, 600};
     this->window_state.window_size = Vec2f(window_size);
-    Vec2i win_pos = this->get_primary_monitor_size() / 2;
 
-    this->win = RGFW_createWindow("enim", win_pos.x, win_pos.y, window_size.x, window_size.y, RGFW_windowAllowDND | RGFW_windowOpenGL);
+    RGFW_windowFlags window_flags = RGFW_windowAllowDND | RGFW_windowOpenGL | RGFW_windowCenter;
+    this->win = RGFW_createWindow("enim", 0, 0, window_size.x, window_size.y, window_flags);
     if (!this->win) {
         return std::unexpected(enim::Error{enim::ErrorCode::WindowCreationError, "could not create window"});
     }
@@ -181,10 +181,13 @@ void Window::run() {
         Vec2f Is = this->window_state.image_size;
         float image_aspect_ratio = Is.x / Is.y;
         Vec2f Ms = Vec2f(this->get_primary_monitor_size());
-        IScalar window_width = std::min((IScalar)(Ms.x), (IScalar)(Ms.y * image_aspect_ratio));
-        IScalar window_height = (IScalar)(window_width / image_aspect_ratio);
 
-        this->set_window_size({window_width, window_height});
+        float s_area = std::sqrt(Ms.x * Ms.y / (Is.x * Is.y));
+        float s_max  = std::min(Ms.x / Is.x, Ms.y / Is.y);
+        float s = std::min(s_area, s_max);
+
+        this->set_window_size({std::round(s * Is.x), std::round(s * Is.y)});
+        RGFW_window_center(this->win);
         this->window_state.fit();
     }
 

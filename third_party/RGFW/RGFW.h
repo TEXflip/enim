@@ -11431,6 +11431,7 @@ LRESULT CALLBACK WndProcW(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				value = RGFW_mouseMisc1 + (GET_XBUTTON_WPARAM(wParam) == XBUTTON2);
 			else value = (message == WM_LBUTTONDOWN) ? (u8)RGFW_mouseLeft :
 									 (message == WM_RBUTTONDOWN) ? (u8)RGFW_mouseRight : (u8)RGFW_mouseMiddle;
+			SetCapture(hWnd);
 
 			RGFW_mouseButtonCallback(win, value, 1);
 			break;
@@ -11441,7 +11442,8 @@ LRESULT CALLBACK WndProcW(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				value = RGFW_mouseMisc1 + (GET_XBUTTON_WPARAM(wParam) == XBUTTON2);
 			else value = (message == WM_LBUTTONUP) ? (u8)RGFW_mouseLeft :
 									 (message == WM_RBUTTONUP) ? (u8)RGFW_mouseRight : (u8)RGFW_mouseMiddle;
-
+			
+			ReleaseCapture();
 			RGFW_mouseButtonCallback(win, value, 0);
 			break;
 		}

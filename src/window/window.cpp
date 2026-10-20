@@ -14,8 +14,8 @@
 #include "setup.hpp"
 #include <plog/Log.h>
 #include <settings/settings.hpp>
-#include <window/window.hpp>
 #include <cmath>
+#include <window/window.hpp>
 
 namespace enim {
 
@@ -174,26 +174,26 @@ void Window::dispatch_events(const RGFW_event& event) {
     switch (event.type) {
 #ifndef ENIM_OS_WIN
     case RGFW_windowResized:
-        this->on_resize(event);
-        break;
+    this->on_resize(event);
+    break;
 #endif
-    case RGFW_keyPressed:
-        this->on_key_pressed(event);
-        break;
     case RGFW_mouseMotion:
         this->on_mouse_move(event);
-        break;
-    case RGFW_mouseScroll:
-        this->on_mouse_wheel(event);
-        break;
-    case RGFW_windowMoved:
-        this->on_window_move(event);
         break;
     case RGFW_mouseButtonPressed:
         this->on_mouse_down(event);
         break;
     case RGFW_mouseButtonReleased:
         this->on_mouse_up(event);
+        break;
+    case RGFW_keyPressed:
+        this->on_key_pressed(event);
+        break;
+    case RGFW_mouseScroll:
+        this->on_mouse_wheel(event);
+        break;
+    case RGFW_windowMoved:
+        this->on_window_move(event);
         break;
     default:
         // PLOG_WARNING << "Unhandled event type: " << std::to_string(event.type);
@@ -208,16 +208,16 @@ void Window::run() {
         this->window_state.fit();
     }
 
-#ifdef ENIM_OS_WIN
-    HWND hwnd = (HWND)RGFW_window_getHWND(this->win);
-    SetWindowSubclass(hwnd, SubclassProc, 1, reinterpret_cast<DWORD_PTR>(this));
-#endif
-
     this->request_redraw();
     this->poll_events();
 }
 
 void Window::poll_events() {
+#ifdef ENIM_OS_WIN
+    HWND hwnd = (HWND)RGFW_window_getHWND(this->win);
+    SetWindowSubclass(hwnd, SubclassProc, 1, reinterpret_cast<DWORD_PTR>(this));
+#endif
+
     RGFW_event event;
     while (!RGFW_window_shouldClose(this->win)) {
         RGFW_waitForEvent(RGFW_eventWaitNext);

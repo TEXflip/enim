@@ -4,11 +4,6 @@
 #include <window/window.hpp>
 
 namespace enim {
-void Window::on_key_pressed(const RGFW_event& event) {
-    if (event.key.value == RGFW_keyEscape) {
-        RGFW_window_setShouldClose(event.common.win, 1);
-    }
-}
 
 #ifdef ENIM_OS_WIN
 LRESULT CALLBACK SubclassProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR ref) {
@@ -30,7 +25,22 @@ LRESULT CALLBACK SubclassProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PT
 }
 #endif
 
+void Window::on_key_pressed(const RGFW_event& event) {
+    switch (event.key.value) {
+    case RGFW_keyEscape:
+        RGFW_window_setShouldClose(event.common.win, 1);
+        break;
+    case RGFW_keyR:
+        this->window_state.fit();
+        this->request_redraw();
+        break;
+    default:
+        break;
+    }
+}
+
 void Window::on_resize(const RGFW_event& event) {
+    PLOG_INFO << "Window resized to (" << event.update.w << ", " << event.update.h << ")";
     this->window_state.window_size.x = event.update.w;
     this->window_state.window_size.y = event.update.h;
     if (event.update.w <= 0 || event.update.h <= 0)
@@ -38,9 +48,7 @@ void Window::on_resize(const RGFW_event& event) {
     this->request_redraw();
 }
 
-void Window::on_window_move(const RGFW_event& event) {
-    
-}
+void Window::on_window_move(const RGFW_event& event) {}
 
 void Window::on_mouse_wheel(const RGFW_event& event) {
     this->window_state.zoom_at(this->mouse_state.position, std::exp2(event.delta.y * 0.2f));

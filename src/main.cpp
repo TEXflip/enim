@@ -15,14 +15,16 @@ int main(int argc, char* argv[]) {
 
     enim::Window window(settings);
 
-    window.load_image();
     auto result = window.setup();
     if (!result) {
         const auto& error = result.error();
         PLOG_ERROR << error.message;
         std::exit(static_cast<int>(error.code));
     }
-
+    
+    auto img_load_result = window.load_image();
+    if (!img_load_result)
+        PLOG_ERROR << img_load_result.error().message;
     window.run();
 
     return 0;

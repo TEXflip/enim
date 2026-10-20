@@ -40,7 +40,6 @@ void Window::on_key_pressed(const RGFW_event& event) {
 }
 
 void Window::on_resize(const RGFW_event& event) {
-    PLOG_INFO << "Window resized to (" << event.update.w << ", " << event.update.h << ")";
     this->window_state.window_size.x = event.update.w;
     this->window_state.window_size.y = event.update.h;
     if (event.update.w <= 0 || event.update.h <= 0)

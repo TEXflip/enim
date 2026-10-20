@@ -12,9 +12,9 @@
 #include "../logging.hpp"
 #include "gl_debug_helpers.hpp"
 #include "setup.hpp"
+#include <cmath>
 #include <plog/Log.h>
 #include <settings/settings.hpp>
-#include <cmath>
 #include <window/window.hpp>
 
 namespace enim {
@@ -50,22 +50,17 @@ std::expected<void, enim::Error> Window::load_image() {
         return std::unexpected(enim::Error{enim::ErrorCode::ImageLoadError, "image path is empty"});
 
     auto view_result = enim::dispatch(this->settings);
-    if (!view_result) {
-        const auto& error = view_result.error();
-        PLOG_ERROR << error.message;
-        return std::unexpected(error);
-    }
+    if (!view_result)
+        return std::unexpected(view_result.error());
 
     this->image_view = std::move(view_result.value());
-    this->window_state.image_size = Vec2f{static_cast<float>(this->image_view->reader().get_shape().width),
-                                         static_cast<float>(this->image_view->reader().get_shape().height)};
+    this->window_state.image_size =
+        Vec2f{static_cast<float>(this->image_view->reader().get_shape().width), static_cast<float>(this->image_view->reader().get_shape().height)};
 
     return std::expected<void, enim::Error>{};
 }
 
-void Window::request_redraw() {
-    this->draw();
-}
+void Window::request_redraw() { this->draw(); }
 
 void Window::create_texture() {
     glGenTextures(1, &this->main_image_texture);
@@ -109,37 +104,17 @@ std::expected<void, enim::Error> Window::setup() {
     hints->major = 3;
     hints->minor = 3;
     hints->profile = RGFW_glCore;
-#ifdef DEBUG
-    hints->debug = RGFW_TRUE;
-#endif
+    hints->debug = this->settings.debug ? RGFW_TRUE : RGFW_FALSE;
     RGFW_setGlobalHints_OpenGL(hints);
 
-    RGFW_windowFlags flags = RGFW_windowAllowDND | RGFW_windowScaleToMonitor | RGFW_windowOpenGL;
+    Vec2i window_size = this->get_primary_monitor_size() / 2;
+    this->window_state.window_size = Vec2f(window_size);
+    Vec2i win_pos = this->get_primary_monitor_size() / 2;
 
-    int window_width = 600;
-    int window_height = 600;
-#ifdef DEBUG
-    flags |= RGFW_windowCenter;
-#else
-    if (this->image_view) {
-        auto shape = this->image_view->reader().get_shape();
-        RGFW_monitor* mon = RGFW_getPrimaryMonitor();
-        if (mon) {
-            if (shape.width > mon->mode.w || shape.height > mon->mode.h)
-                flags |= RGFW_windowMaximize;
-            window_width = mon->mode.w;
-            window_height = mon->mode.h;
-        }
-    }
-#endif
-
-    this->win = RGFW_createWindow("enim", 20, 20, window_width, window_height, flags);
+    this->win = RGFW_createWindow("enim", win_pos.x, win_pos.y, window_size.x, window_size.y, RGFW_windowAllowDND | RGFW_windowOpenGL);
     if (!this->win) {
         return std::unexpected(enim::Error{enim::ErrorCode::WindowCreationError, "could not create window"});
     }
-
-    this->window_state.window_size.x = window_width;
-    this->window_state.window_size.y = window_height;
 
     RGFW_window_makeCurrentContext_OpenGL(this->win);
 
@@ -164,8 +139,6 @@ std::expected<void, enim::Error> Window::setup() {
     }
     std::tie(this->main_program, this->vao, this->vbo, this->ebo) = opengl_result.value();
 
-    glClearColor(0.0431f, 0.0431f, 0.0431f, 1.0f);
-
     return std::expected<void, enim::Error>{};
 }
 
@@ -174,8 +147,8 @@ void Window::dispatch_events(const RGFW_event& event) {
     switch (event.type) {
 #ifndef ENIM_OS_WIN
     case RGFW_windowResized:
-    this->on_resize(event);
-    break;
+        this->on_resize(event);
+        break;
 #endif
     case RGFW_mouseMotion:
         this->on_mouse_move(event);
@@ -202,12 +175,20 @@ void Window::dispatch_events(const RGFW_event& event) {
 }
 
 void Window::run() {
-    if (this->image_view)
-    {
+    if (this->image_view) {
         this->create_texture();
+
+        Vec2f Is = this->window_state.image_size;
+        float image_aspect_ratio = Is.x / Is.y;
+        Vec2f Ms = Vec2f(this->get_primary_monitor_size());
+        IScalar window_width = std::min((IScalar)(Ms.x), (IScalar)(Ms.y * image_aspect_ratio));
+        IScalar window_height = (IScalar)(window_width / image_aspect_ratio);
+
+        this->set_window_size({window_width, window_height});
         this->window_state.fit();
     }
 
+    glClearColor(0.0431f, 0.0431f, 0.0431f, 1.0f);
     this->request_redraw();
     this->poll_events();
 }
@@ -255,6 +236,16 @@ inline void Window::draw() {
 
     RGFW_window_swapBuffers_OpenGL(this->win);
     glFlush();
+}
+
+Vec2i Window::get_primary_monitor_size() const {
+    RGFW_monitor* mon = RGFW_getPrimaryMonitor();
+    return {mon->mode.w / 2, mon->mode.h / 2};
+}
+
+void Window::set_window_size(Vec2i window_size) {
+    this->window_state.window_size = Vec2f(window_size);
+    RGFW_window_resize(this->win, window_size.x, window_size.y);
 }
 
 } // namespace enim

@@ -10,6 +10,8 @@ using Scalar = std::float32_t;
 using Scalar = float;
 #endif
 
+using IScalar = std::int32_t;
+
 template<typename T>
 concept Arithmetic = std::is_arithmetic_v<T>;
 
@@ -53,7 +55,7 @@ struct Vec2 {
 template<Arithmetic T> Vec2(T, T) -> Vec2<T>;
 
 using Vec2f = Vec2<Scalar>;
-using Vec2i = Vec2<std::int64_t>;
+using Vec2i = Vec2<std::int32_t>;
 
 namespace detail {
     template<Arithmetic T, Arithmetic U>
@@ -101,22 +103,22 @@ bool operator==(const Vec2<T>& a, const Vec2<U>& b);
     extern template Vec2<std::common_type_t<T, S>> operator/<S, T>(S, const Vec2<T>&);
 
 VEC2_EXTERN_VV(Scalar, Scalar)
-VEC2_EXTERN_VV(Scalar, std::int64_t)
-VEC2_EXTERN_VV(std::int64_t, Scalar)
-VEC2_EXTERN_VV(std::int64_t, std::int64_t)
+VEC2_EXTERN_VV(Scalar, IScalar)
+VEC2_EXTERN_VV(IScalar, Scalar)
+VEC2_EXTERN_VV(IScalar, IScalar)
 VEC2_EXTERN_VS(Scalar, int)
-VEC2_EXTERN_VS(Scalar, std::int64_t)
+VEC2_EXTERN_VS(Scalar, IScalar)
 VEC2_EXTERN_VS(Scalar, float)
 VEC2_EXTERN_VS(Scalar, double)
 #ifdef __STDCPP_FLOAT32_T__
 VEC2_EXTERN_VS(Scalar, Scalar)
 #endif
-VEC2_EXTERN_VS(std::int64_t, int)
-VEC2_EXTERN_VS(std::int64_t, std::int64_t)
-VEC2_EXTERN_VS(std::int64_t, float)
-VEC2_EXTERN_VS(std::int64_t, double)
+VEC2_EXTERN_VS(IScalar, int)
+VEC2_EXTERN_VS(IScalar, IScalar)
+VEC2_EXTERN_VS(IScalar, float)
+VEC2_EXTERN_VS(IScalar, double)
 #ifdef __STDCPP_FLOAT32_T__
-VEC2_EXTERN_VS(std::int64_t, Scalar)
+VEC2_EXTERN_VS(IScalar, Scalar)
 #endif
 
 #undef VEC2_EXTERN_VV

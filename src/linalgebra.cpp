@@ -78,12 +78,12 @@ bool operator==(const Vec2<T>& a, const Vec2<U>& b) {
 #endif
 
 #define VEC2_SCALARS(M, T)                                                        \
-    M(T, int) M(T, std::int64_t) M(T, float) M(T, double)                         \
+    M(T, IScalar) M(T, float) M(T, double)                                   \
     VEC2_EXTRA_SCALAR(M, T)
 
 #define VEC2_COMPONENT_PAIRS(M)                                                   \
-    M(Scalar, Scalar)       M(Scalar, std::int64_t)                               \
-    M(std::int64_t, Scalar) M(std::int64_t, std::int64_t)
+    M(Scalar, Scalar)       M(Scalar, IScalar)                               \
+    M(IScalar, Scalar) M(IScalar, IScalar)
 
 // Vec (op) Vec
 #define VEC2_INST_VV(T, U)                                                        \
@@ -112,7 +112,7 @@ bool operator==(const Vec2<T>& a, const Vec2<U>& b) {
 
 VEC2_COMPONENT_PAIRS(VEC2_INST_VV)
 VEC2_SCALARS(VEC2_INST_VS, Scalar)
-VEC2_SCALARS(VEC2_INST_VS, std::int64_t)
+VEC2_SCALARS(VEC2_INST_VS, IScalar)
 
 // Explicit instantiation for mixed float types (std::float32_t and float)
 #ifdef __STDCPP_FLOAT32_T__

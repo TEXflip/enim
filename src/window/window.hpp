@@ -103,6 +103,10 @@ struct Window {
     void on_mouse_up(const RGFW_event& event);
     void on_window_move(const RGFW_event& event);
     void on_resize(const RGFW_event& event);
+
+    // helper functions
+    Vec2i get_primary_monitor_size() const;
+    void set_window_size(Vec2i window_size);
 };
 
 } // namespace enim

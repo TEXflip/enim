@@ -8,10 +8,8 @@
 
 #include "../dispatcher.hpp"
 #include "../errors.hpp"
-#include "../image_view.hpp"
 #include "../logging.hpp"
 #include "gl_debug_helpers.hpp"
-#include "setup.hpp"
 #include <cmath>
 #include <plog/Log.h>
 #include <settings/settings.hpp>
@@ -31,13 +29,11 @@ namespace enim {
 LRESULT CALLBACK SubclassProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR ref);
 #endif
 
-Window::Window(enim::Settings& settings) : win(nullptr), main_program(0), vao(0), vbo(0), ebo(0), settings(settings) {}
+Window::Window(enim::Settings& settings) : win(nullptr), settings(settings) {}
 
 Window::~Window() {
-    glDeleteVertexArrays(1, &this->vao);
-    glDeleteBuffers(1, &this->vbo);
-    glDeleteBuffers(1, &this->ebo);
-    glDeleteProgram(this->main_program);
+    // the renderer frees GL resources, so it must go before the context
+    this->renderer.reset();
 
     if (this->win != nullptr) {
         RGFW_window_close(this->win);
@@ -45,57 +41,6 @@ Window::~Window() {
     }
 }
 
-std::expected<void, enim::Error> Window::load_image() {
-    if (this->settings.image_path.empty())
-        return std::unexpected(enim::Error{enim::ErrorCode::ImageLoadError, "image path is empty"});
-
-    auto view_result = enim::dispatch(this->settings);
-    if (!view_result)
-        return std::unexpected(view_result.error());
-
-    this->image_view = std::move(view_result.value());
-    this->window_state.image_size =
-        Vec2f{static_cast<float>(this->image_view->reader().get_shape().width), static_cast<float>(this->image_view->reader().get_shape().height)};
-
-    return std::expected<void, enim::Error>{};
-}
-
-void Window::request_redraw() { this->draw(); }
-
-void Window::create_texture() {
-    glGenTextures(1, &this->main_image_texture);
-    glBindTexture(GL_TEXTURE_2D, this->main_image_texture);
-
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-    GLfloat borderColor[] = {0.0431f, 0.0431f, 0.0431f, 1.0f}; // Red border
-    glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor);
-
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-
-    // DEBUG: Log texture parameters
-    auto shape = this->image_view->reader().get_shape();
-    auto buffer = this->image_view->reader().get_buffer_mmap();
-    if (!buffer) {
-        PLOG_ERROR << "Failed to get image buffer";
-        return;
-    }
-    GLint max_tex_size;
-    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max_tex_size);
-
-    PLOG_INFO << "Image size (HxWxC): " << shape.height << "x" << shape.width << "x" << shape.channels;
-    PLOG_INFO << "Max texture size: " << max_tex_size << " pixels per side";
-
-    // GLint format = this->image_view->reader().get_shape().channels == 4 ? GL_RGBA : GL_RGB;
-
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, shape.width, shape.height, 0, GL_BGR, GL_UNSIGNED_BYTE, buffer);
-
-    GLenum err = glGetError();
-    if (err != GL_NO_ERROR) {
-        PLOG_ERROR << "GL Error in glTexImage2D: " << err;
-    }
-}
 
 std::expected<void, enim::Error> Window::setup() {
     RGFW_init("enim", RGFW_initOpenGL);
@@ -133,14 +78,32 @@ std::expected<void, enim::Error> Window::setup() {
         PLOG_WARNING << "No debug output available; use GL_CHECK() with glGetError";
     }
 
-    auto opengl_result = setup_main_glprogram();
-    if (!opengl_result) {
-        return std::unexpected(opengl_result.error());
-    }
-    std::tie(this->main_program, this->vao, this->vbo, this->ebo) = opengl_result.value();
+    return std::expected<void, enim::Error>{};
+}
+
+
+std::expected<void, enim::Error> Window::load_image() {
+    if (this->settings.image_path.empty())
+        return std::unexpected(enim::Error{enim::ErrorCode::ImageLoadError, "image path is empty"});
+    
+    GLint max_tex_size;
+    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max_tex_size);
+
+    auto renderer_result = enim::dispatch(this->settings, (int) max_tex_size);
+    if (!renderer_result)
+        return std::unexpected(renderer_result.error());
+
+    auto init_result = renderer_result.value()->init();
+    if (!init_result)
+        return std::unexpected(init_result.error());
+
+    this->renderer = std::move(renderer_result.value());
+    this->window_state.image_size = this->renderer->image_size();
 
     return std::expected<void, enim::Error>{};
 }
+
+void Window::request_redraw() { this->draw(); }
 
 void Window::dispatch_events(const RGFW_event& event) {
     // PLOG_INFO << "Dispatching event of type: " << std::to_string(event.type);
@@ -175,9 +138,7 @@ void Window::dispatch_events(const RGFW_event& event) {
 }
 
 void Window::run() {
-    if (this->image_view) {
-        this->create_texture();
-
+    if (this->renderer) {
         Vec2f Is = this->window_state.image_size;
         float image_aspect_ratio = Is.x / Is.y;
         Vec2f Ms = Vec2f(this->get_primary_monitor_size());
@@ -212,30 +173,12 @@ void Window::poll_events() {
 
 inline void Window::draw() {
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-    glUseProgram(this->main_program);
     glViewport(0, 0, (int)this->window_state.window_size.x, (int)this->window_state.window_size.y);
 
-    if (this->main_image_texture > 0) {
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, this->main_image_texture);
+    if (this->renderer) {
+        this->renderer->update(this->window_state);
+        this->renderer->draw(this->window_state);
     }
-
-    Vec2f scale, offset;
-    this->window_state.uniforms(scale, offset);
-
-    glUniform1i(glGetUniformLocation(this->main_program, "image"), 0);
-    glUniform2f(glGetUniformLocation(this->main_program, "offset"), offset.x, offset.y);
-    glUniform2f(glGetUniformLocation(this->main_program, "scale"), scale.x, scale.y);
-
-    GLenum err = glGetError();
-    if (err != GL_NO_ERROR) {
-        PLOG_ERROR << "GL Error: " << err;
-    }
-
-    glBindVertexArray(this->vao);
-    glDrawArrays(GL_TRIANGLES, 0, 6);
-    glBindVertexArray(0);
 
     RGFW_window_swapBuffers_OpenGL(this->win);
     glFlush();

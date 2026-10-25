@@ -1,5 +1,7 @@
 #include "dispatcher.hpp"
 
+#include <render/fast_renderer.hpp>
+
 namespace {
 
 const std::unordered_map<std::string_view, FileHeaderFactory> HEADER_MAP{
@@ -42,11 +44,10 @@ const std::expected<enim::FileFormat, enim::Error> detect_format(const std::file
     return std::unexpected(enim::Error{default_error, "Unknown image format"});
 }
 
-std::expected<std::unique_ptr<enim::ImageView>, enim::Error> dispatch(const Settings& settings) {
+std::expected<std::unique_ptr<enim::ImageRenderer>, enim::Error> dispatch(const Settings& settings, int max_texture_size) {
     auto format_result = detect_format(settings.image_path);
-    if (!format_result) {
+    if (!format_result)
         return std::unexpected(format_result.error());
-    }
 
     enim::FileFormat format = format_result.value();
 
@@ -54,26 +55,30 @@ std::expected<std::unique_ptr<enim::ImageView>, enim::Error> dispatch(const Sett
 
     auto header_factory_it = HEADER_MAP.find(format.name);
 
-    if (header_factory_it == HEADER_MAP.end()) {
+    if (header_factory_it == HEADER_MAP.end())
         return std::unexpected(enim::Error{enim::ErrorCode::FileOpenError, std::string(format.name.data()) + " Format not supported"});
-    }
 
     std::unique_ptr<enim::FileReader> header = header_factory_it->second();
 
     auto preload_result = header->load_header(settings.image_path);
-    if (!preload_result) {
+    if (!preload_result)
         return std::unexpected(preload_result.error());
+
+    Shape image_shape = header->get_shape();
+
+    bool fast_mode = image_shape.width <= max_texture_size && image_shape.height <= max_texture_size;
+
+    if (settings.force_fast_mode) fast_mode = true;
+    if (settings.force_normal_mode) fast_mode = false;
+
+    if (!fast_mode) {
+        // TODO: return the tiled renderer once normal mode is implemented
+        PLOG_WARNING << "Normal mode not implemented yet, falling back to fast mode";
+    } else {
+        PLOG_INFO << "Using fast mode";
     }
 
-    if (settings.force_normal_mode) {
-        return std::make_unique<enim::NormalModeImageView>(std::move(header));
-    }
-
-    if (settings.force_fast_mode) {
-        return std::make_unique<enim::FastModeImageView>(std::move(header));
-    }
-
-    return std::make_unique<enim::FastModeImageView>(std::move(header));
+    return std::make_unique<enim::FastRenderer>(std::move(header));
 }
 
 } // namespace enim

@@ -1,5 +1,4 @@
 #include "dispatcher.hpp"
-#include "image_view.hpp"
 #include "logging.hpp"
 
 #include <settings/settings.hpp>

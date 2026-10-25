@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <string_view>
 #include <unordered_map>
 #include <filesystem>
@@ -18,6 +19,8 @@ struct Shape {
 };
 
 struct FileReader {
+    virtual ~FileReader() = default;
+
     /// @brief Load the header of the image file, this function is the first run before any other of FileReader functions.
     /// @param path The path to the image file.
     /// @return An expected indicating success or containing an error.

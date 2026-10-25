@@ -32,6 +32,7 @@ add_executable(enim
     src/window/setup.cpp
     src/window/gl_debug_helpers.cpp
     src/window/rgfw.cpp
+    src/render/fast_renderer.cpp
     src/settings/settings.cpp
 )
     

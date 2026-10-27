@@ -25,13 +25,20 @@ add_subdirectory(third_party/glad)
 
 add_executable(enim
     src/main.cpp
-    src/dispatcher.cpp
     src/linalgebra.cpp
+    src/io/detect.cpp
+    src/io/formats/bmp/bmp_source.cpp
+    src/plan/load_plan.cpp
+    src/plan/loader.cpp
+    src/view/display_params.cpp
     src/window/window.cpp
     src/window/events.cpp
-    src/window/setup.cpp
     src/window/gl_debug_helpers.cpp
     src/window/rgfw.cpp
+    src/render/gl/program.cpp
+    src/render/gl/texture.cpp
+    src/render/gl/texture_format.cpp
+    src/render/image_pass.cpp
     src/render/fast_renderer.cpp
     src/settings/settings.cpp
 )

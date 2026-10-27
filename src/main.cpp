@@ -1,4 +1,3 @@
-#include "dispatcher.hpp"
 #include "logging.hpp"
 
 #include <settings/settings.hpp>

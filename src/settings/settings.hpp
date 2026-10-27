@@ -1,16 +1,26 @@
 #pragma once
 
+#include <cstddef>
+#include <optional>
 #include <string>
+#include <string_view>
 
 namespace enim {
+
+constexpr std::size_t kDefaultFastModeMaxBytes = std::size_t{1} << 30; // 1 GiB
 
 /// @brief Structure to hold application settings parsed from command-line arguments.
 struct Settings {
     bool debug = false;
     bool force_fast_mode = false;
     bool force_normal_mode = false;
+    std::size_t fast_mode_max_bytes = kDefaultFastModeMaxBytes; // --fast-max-mem, then ENIM_FAST_MAX_MEM
     std::string image_path;
 };
+
+/// @brief Parses a memory size such as "512M", "2G", "1.5GiB" or "1048576" (binary units).
+/// @return The size in bytes, or nullopt if the string is not a valid size.
+std::optional<std::size_t> parse_size(std::string_view text);
 
 /// @brief Print the help message for the application.
 /// @param program_name The name of the program (typically argv[0]).

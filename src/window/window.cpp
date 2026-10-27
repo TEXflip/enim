@@ -6,11 +6,11 @@
 
 #include <RGFW.h>
 
-#include "../dispatcher.hpp"
 #include "../errors.hpp"
 #include "../logging.hpp"
 #include "gl_debug_helpers.hpp"
 #include <cmath>
+#include <plan/loader.hpp>
 #include <plog/Log.h>
 #include <settings/settings.hpp>
 #include <window/window.hpp>
@@ -86,10 +86,7 @@ std::expected<void, enim::Error> Window::load_image() {
     if (this->settings.image_path.empty())
         return std::unexpected(enim::Error{enim::ErrorCode::ImageLoadError, "image path is empty"});
     
-    GLint max_tex_size;
-    glGetIntegerv(GL_MAX_TEXTURE_SIZE, &max_tex_size);
-
-    auto renderer_result = enim::dispatch(this->settings, (int) max_tex_size);
+    auto renderer_result = enim::load(this->settings, enim::query_gpu_limits());
     if (!renderer_result)
         return std::unexpected(renderer_result.error());
 

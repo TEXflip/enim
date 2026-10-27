@@ -1,5 +1,10 @@
+#pragma once
+
 #include <plog/Initializers/ConsoleInitializer.h>
 #include <plog/Initializers/RollingFileInitializer.h>
+#include <plog/Log.h>
+
+#include <settings/settings.hpp>
 
 namespace plog {
 class CustomFormatter {

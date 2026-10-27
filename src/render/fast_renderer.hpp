@@ -1,25 +1,24 @@
 #pragma once
 
-#include <cstdint>
 #include <memory>
 
-#include <glad/glad.h>
-
-#include <formats.hpp>
+#include <io/image_source.hpp>
+#include <plan/load_plan.hpp>
+#include <render/gl/texture.hpp>
+#include <render/image_pass.hpp>
 #include <render/image_renderer.hpp>
 
 namespace enim {
 
-/// @brief Renders the whole image from a single texture, for images that fit in VRAM.
+/// @brief Renders the whole image from a single display texture, for images that fit in VRAM.
 struct FastRenderer : public ImageRenderer {
-    std::unique_ptr<enim::FileReader> reader;
-    GLuint program = 0, texture = 0;
-    std::uint32_t vao = 0;
-    std::uint32_t vbo = 0;
-    std::uint32_t ebo = 0;
+    std::unique_ptr<ImageSource> source;
+    LoadPlan plan;
+    ImagePass image_pass;
+    Texture texture;
+    bool flip_y = false; // the texture rows are stored bottom-up
 
-    FastRenderer(std::unique_ptr<enim::FileReader> reader) : reader(std::move(reader)) {}
-    ~FastRenderer() override;
+    FastRenderer(std::unique_ptr<ImageSource> source, const LoadPlan& plan) : source(std::move(source)), plan(plan) {}
 
     std::expected<void, enim::Error> init() override;
     void update(const ViewTransform& view) override {}
@@ -27,7 +26,7 @@ struct FastRenderer : public ImageRenderer {
     Vec2f image_size() const override;
 
   private:
-    std::expected<void, enim::Error> create_texture();
+    std::expected<void, enim::Error> upload_direct();
 };
 
 } // namespace enim

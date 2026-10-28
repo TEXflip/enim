@@ -10,7 +10,7 @@
 
 namespace enim {
 
-/// @brief Owns a framebuffer object rendering into level 0 of one texture. Move-only.
+/// @brief Owns a framebuffer object rendering into one level of a texture. Move-only.
 struct Framebuffer {
     GLuint id = 0;
 
@@ -24,8 +24,11 @@ struct Framebuffer {
     }
     ~Framebuffer() { glDeleteFramebuffers(1, &this->id); }
 
-    /// @brief Creates the framebuffer with texture as its color attachment and checks that it is complete.
-    static std::expected<Framebuffer, enim::Error> create(const Texture& texture);
+    /// @brief Creates the framebuffer with a texture level as its color attachment and checks that it is complete.
+    static std::expected<Framebuffer, enim::Error> create(const Texture& texture, GLint level = 0);
+
+    /// @brief Replaces the color attachment and checks that the framebuffer is complete.
+    std::expected<void, enim::Error> attach(const Texture& texture, GLint level);
 };
 
 } // namespace enim

@@ -19,22 +19,22 @@ After determining which mode to use, the next step is to choose the strategy on 
   2. compute the image pyramid on the disk.
   3. while is decoding (if compressed) or computing the pyramid, the CPU view sampler subsamples the image for rendering reading only random averaged pixels of the level 0 image, the user will see an artifacted preview of the image while the full resolution image is being prepared by tiles as they become available.
 
-In both modes the final fragment shader only samples a texture, so rendering gets hardware filtering (and optional mipmaps in fast mode, off by default, toggled with the `M` key). The texture is display-ready: channel selection and bit depth conversion are done once, before rendering:
-- in Fast mode, after decoding: by a conversion fragment shader (FBO to FBO) for GPU-decoded formats, or by the CPU for formats decoded on the CPU. Uncompressed images whose layout OpenGL can upload directly with `glTexImage2D` need no conversion at all; the other uncompressed images are uploaded raw into a buffer texture and converted by a fragment shader into an FBO, whose texture is then used for rendering.
+In both modes the final fragment shader only samples a texture, so rendering gets hardware filtering (and mipmaps in fast mode). The texture is display-ready: channel selection and bit depth conversion are done once, before rendering:
+- in Fast mode, after decoding: by a conversion fragment shader (FBO to FBO) for GPU-decoded formats, or by the CPU for formats decoded on the CPU. Uncompressed images whose layout OpenGL can upload directly (`glTexImage2D`/`glTexSubImage2D`) need no conversion at all; the other uncompressed images are uploaded raw into a buffer texture and converted by a fragment shader into an FBO, whose texture is then used for rendering.
 - in Normal mode, by the CPU view sampler while it produces the screen-sized frame.
 
 The texture keeps the original bit depth whenever OpenGL has a filterable texture format for it (8 and 16 bit integer, 16 and 32 bit float), and only the channels that are displayed (MONO, MONO+ALPHA, RGB or RGBA).
 
 # Code architecture
 
-> Status: target design, partially built. Done: `PixelLayout`/`ImageInfo`, `ImageSource` + `RowSink` interfaces, `BmpSource` (24/32-bit, BI_RGB and byte-aligned bitfields, both row orders), `io/detect`, `DisplayParams`, `choose_texture_format` + direct upload rules, `make_plan`, `plan/loader` (no threads yet), `ImagePass`, and `FastRenderer` with the `DirectUpload` and `GpuConvert` strategies (`RawBuffer`, `Framebuffer`, `ConvertPass` raw variant; swizzle; optional mipmaps toggled with `M`). `--force-gpu-convert` (debug) sends uploadable layouts through `GpuConvert` too. Next: `StreamUpload`/`GpuDecode` (with `ConvertPass::init_texture`), then normal mode. Normal mode currently falls back to fast mode when the image fits in a texture.
+> Status: target design, partially built. Done: `PixelLayout`/`ImageInfo`, `ImageSource` + `RowSink` interfaces, `BmpSource` (24/32-bit, BI_RGB and byte-aligned bitfields, both row orders), `io/detect`, `DisplayParams`, `choose_texture_format` + direct upload rules, `make_plan`, `plan/loader` (no threads yet), `ImagePass`, and `FastRenderer` with the `DirectUpload` and `GpuConvert` strategies (`RawBuffer`, `Framebuffer`, `ConvertPass` raw variant; swizzle; mipmaps built progressively by `MipmapBuilder` after loading). `--force-gpu-convert` (debug) sends uploadable layouts through `GpuConvert` too. Next: `StreamUpload`/`GpuDecode` (with `ConvertPass::init_texture`), then normal mode. Normal mode currently falls back to fast mode when the image fits in a texture.
 
 ## Pipeline
 
 ```
  FAST MODE                                              (once, at load)               (every frame)
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│uncompressed, GL-uploadable layout ── mmap ── glTexImage2D ─────────────────►│
+│uncompressed, GL-uploadable layout ── mmap ── glTexSubImage2D ──────────────►│
 │uncompressed, other layout ── mmap ── buffer texture ── convert pass (bands)►│ display texture  ──► image shader
 │CPU-decoded ── decoder ── CPU convert ── glTexSubImage2D (progressive) ─────►│ (+ mipmaps, opt.)    (sample)
 │GPU-decoded ── encoded upload ── decode pass ── [convert pass] ─────────────►│
@@ -46,7 +46,7 @@ The texture keeps the original bit depth whenever OpenGL has a filterable textur
 ```
 
 - The **display texture** is the only thing the image shader reads. Its format comes from `choose_texture_format()` (below).
-- The **image shader** is the current one: it maps the screen to texture coordinates with the `ViewTransform` and samples. Magnification uses `GL_NEAREST` (pixels stay sharp when zoomed in), minification uses `GL_LINEAR`, or `GL_LINEAR_MIPMAP_LINEAR` in fast mode when mipmaps are enabled.
+- The **image shader** is the current one: it maps the screen to texture coordinates with the `ViewTransform` and samples. Magnification uses `GL_NEAREST` (pixels stay sharp when zoomed in), minification uses `GL_LINEAR_MIPMAP_LINEAR` in fast mode (once the mip chain is built) and `GL_LINEAR` in normal mode.
 - There is a single draw pass. It runs when the view changes or new data reaches the GPU. The decode and convert passes run once at load time and never while rendering.
 
 On the CPU side, every loading strategy is the same pipeline with different pieces plugged in:
@@ -118,7 +118,7 @@ Value range normalization (`DisplayParams::range`) for float and 32-bit data is 
 
 ### Direct upload (no conversion)
 
-An uncompressed source is uploaded straight from the mmap with `glTexImage2D` when GL can read its layout as is:
+An uncompressed source is uploaded straight from the mmap (`glTexSubImage2D` into storage allocated beforehand, see Mipmaps) when GL can read its layout as is:
 - channels map to a GL pixel format: `GL_RED`, `GL_RG`, `GL_RGB`/`GL_BGR`, `GL_RGBA`/`GL_BGRA`;
 - the sample type maps to a GL type (`GL_UNSIGNED_BYTE`, `GL_UNSIGNED_SHORT`, `GL_HALF_FLOAT`, `GL_FLOAT`, ...) and `choose_texture_format` keeps it;
 - big-endian data uses `GL_UNPACK_SWAP_BYTES`, row padding uses `GL_UNPACK_ALIGNMENT` or `GL_UNPACK_ROW_LENGTH`;
@@ -133,7 +133,7 @@ Anything else (more than 4 channels, `Unused` in the middle, U32, unsupported pa
 
 ```cpp
 enum class FastStrategy {
-    DirectUpload, // uncompressed, GL-uploadable layout: glTexImage2D straight from the mmap
+    DirectUpload, // uncompressed, GL-uploadable layout: glTexSubImage2D straight from the mmap
     GpuConvert,   // uncompressed, other layout: mmap bands → buffer texture → convert pass → FBO texture
     GpuDecode,    // encoded upload → decode pass → optional convert pass → texture
     StreamUpload, // CPU decoder → CPU convert → glTexSubImage2D, progressive
@@ -148,7 +148,7 @@ For uncompressed sources GL can't read directly, the raw bytes go to the GPU unc
 2. The source is processed in **bands of rows**. For each band:
    - its bytes are copied from the mmap into a staging `RawBuffer` with `glBufferSubData` (orphaning the buffer between bands to avoid stalls);
    - the convert shader's **raw-buffer variant** draws the band's rows into the FBO (viewport limited to the band). Each fragment reads its pixel's bytes with `fetch_bytes`, decodes the samples (`read_sample`: sample type, endianness, stride and row order come from uniforms), then applies channel selection, depth conversion and range.
-3. When the last band is done, the staging buffer is freed and the FBO's texture is the display texture (mipmaps are generated then, if enabled).
+3. When the last band is done, the staging buffer is freed and the FBO's texture is the display texture (the mip chain is built then).
 
 The band size is the smaller of a staging budget (e.g. 64 MB) and `GL_MAX_TEXTURE_BUFFER_SIZE × 4` bytes, so the buffer limit never constrains the image size and the temporary memory stays small. The main thread draws between bands, so the image appears progressively. Changing the display parameters re-runs the bands from the mmap, which is cheap.
 
@@ -208,12 +208,24 @@ The FBO formats must be color-renderable. GL 3.3 does not guarantee that for 3-c
 
 ### Mipmaps
 
-Mipmaps are optional and **off by default**: the texture keeps level 0 only and minification is bilinear (`GL_LINEAR`), which aliases on fine detail when zoomed out but costs no load time and no extra VRAM. The `M` key toggles them (`Window` → `ImageRenderer::toggle_mipmaps()`, a no-op returning `false` in normal mode):
+Mipmaps are **on**: once the display texture is complete, its chain is built progressively (below) and minification becomes trilinear (`GL_LINEAR_MIPMAP_LINEAR`). Until then, and for the levels not built yet, only the ready levels are sampled, so the image is shown immediately with bilinear minification. There is no key to toggle them: `FastRenderer::mipmaps` and `ImageRenderer::toggle_mipmaps()` (a no-op returning `false` in normal mode) remain, but nothing calls the toggle.
 
-- **on:** `Texture::set_mipmaps(true)` generates the full chain (`glGenerateMipmap`) the first time, then sets `GL_TEXTURE_MAX_LEVEL` to the whole chain and `GL_LINEAR_MIPMAP_LINEAR` minification.
-- **off:** `GL_TEXTURE_MAX_LEVEL` back to 0 and `GL_LINEAR`. The generated chain is kept, so turning them on again is instant.
+**Storage up front.** The display texture allocates levels 1…N (`Texture::allocate_mip_levels`, no data) when it is created, before level 0 gets its pixels. Adding levels later to a texture that already holds a large image makes the driver move it into new storage: a measured 70 ms stall for a 6000×6000 RGBA8 image, against under 2 ms per step when the storage already exists. The chain's VRAM (+⅓) is therefore always allocated, and it is already part of the fast mode budget.
 
-During a progressive upload or band conversion the texture is incomplete, so `GL_TEXTURE_MAX_LEVEL` stays at 0 whatever the setting; a toggle during loading only changes the flag, and the setting is applied when the last band has arrived. Compressed textures use the mipmaps stored in the file when present; otherwise the convert pass runs into an uncompressed texture so that mipmaps can be generated.
+**Render target up front.** For the same reason, the texture is attached to `MipmapBuilder`'s framebuffers (`FastRenderer::prepare_mip_builder`) while it is still empty. The first time a texture becomes a render target, the driver may re-lay out its whole storage. A `GpuConvert` texture is a render target from the start. A direct-upload texture is not, so before this setup, starting the mip build froze the window for about 40 ms on a 6000×6000 image (more on larger ones). `DirectUpload` therefore allocates level 0 empty, sets up the framebuffers, then uploads the pixels with `glTexSubImage2D`. The re-layout then happens on empty storage at load time: the upload of that image went from about 58 ms to 75 ms, and the mip build starts within about 2 ms.
+
+**Progressive build.** The chain is filled on the main thread by `MipmapBuilder`, a bounded amount of work per frame, so events keep being handled while it is built:
+
+- level *i* is a `glBlitFramebuffer` of level *i−1* at half size with `GL_LINEAR` (a 2×2 box filter for even sizes; for odd sizes the bilinear sampling skips some texels, like most `glGenerateMipmap` implementations). Read and draw framebuffers are attached to the two levels; blitting between different levels of one texture is allowed.
+- each `update()` blits about 4 M destination texels (`kMipmapTexelsPerStep`, ~16 MB written at RGBA8). The level is always blitted whole and `glScissor` keeps the current band of rows, so the result is identical to a single blit, without seams. The small levels are done together in one step.
+- `Texture::mip_levels_ready` counts the finished levels. `GL_TEXTURE_MAX_LEVEL` follows it, so trilinear filtering uses the part of the chain that is ready and never samples a level being written.
+- `FastRenderer::loading()` is true while the chain is built, so the window loop polls instead of waiting and redraws after each step.
+
+**During loading** the texture is incomplete, so `GL_TEXTURE_MAX_LEVEL` stays at 0; the build starts when the last band has arrived.
+
+**Fallback.** Blitting needs a color-renderable format. `GpuConvert` textures always are (see `renderable()`); a direct-upload texture whose format isn't (e.g. SNORM, possibly RGB8 on some drivers) fails `MipmapBuilder::init` and the chain is generated at once with `glGenerateMipmap`, blocking.
+
+Compressed textures will use the mipmaps stored in the file when present; otherwise the convert pass runs into an uncompressed texture so that mipmaps can be built.
 
 ## Normal mode
 
@@ -372,9 +384,10 @@ With `TeeSink`, decoding and pyramid building happen in a single pass: coarse le
  view sampler pool   FrameRequest ──► pyramid / level0 mmap ──► converted Frame bands ──► UploadQueue
                                                   │
  main thread (GL)    UploadQueue.drain(budget) ──► glTexSubImage2D ──► image shader
-                     DirectUpload: glTexImage2D from the mmap
+                     DirectUpload: glTexSubImage2D from the mmap
                      GpuConvert: mmap band ──► RawBuffer ──► convert pass ──► FBO texture (band by band, once)
                      GpuDecode: encoded upload ──► decode pass ──► convert pass (once)
+                     mipmaps: MipmapBuilder, ~4 M texels of level blits per wake-up
                      ▲ woken by RGFW_stopCheckEvents() whenever something is queued
 ```
 
@@ -419,7 +432,7 @@ src/
     view_sampler.*       FrameRequest → Frame (resample, convert, preview fallback)
   render/
     image_renderer.hpp   init / update / draw / loading / image_size (the window keeps redrawing while loading())
-    gl/                  program utils, debug helpers, texture.*, framebuffer.*, raw_buffer.*
+    gl/                  program utils, debug helpers, texture.*, framebuffer.*, raw_buffer.*, mipmap_builder.*
                          texture_format.*  choose_texture_format, GL upload params (format/type/unpack)
     image_pass.*         textured quad + ViewTransform → screen
     gpu_passes/
@@ -454,7 +467,7 @@ window.set_renderer(session->renderer());                           // session o
 ## Known limitations
 
 - **Display changes in fast mode:** the texture only holds the displayed channels, already converted. Reordering stored channels is an instant swizzle change; anything else (another channel of a >4-channel image, a different `range`) re-runs the conversion from the source, which for `StreamUpload` means decoding again.
-- **Mipmap memory:** the mip chain adds about a third of the texture size. It is still included in the fast mode budget even though mipmaps are off by default, so that enabling them at runtime always fits. Once generated, the chain stays allocated until the image is closed.
+- **Mipmap memory:** the mip chain adds about a third of the texture size. Its storage is allocated with the texture, before the image data (to avoid relocating the image), and it is included in the fast mode budget.
 - **RGB textures:** many drivers store `RGB8` internally as 4 bytes per pixel, so RGB saves less VRAM than expected (RAM and upload bandwidth savings are real). FBO targets for 3 channels are RGBA anyway, since RGB is not guaranteed renderable.
 - **Integer precision:** U32/I32 data is converted to F32, so values above 2²⁴ lose precision. Irrelevant for display; exact values (e.g. a pixel inspector) must be read on the CPU side.
 - **Normal mode latency:** every pan, zoom or display change needs a new CPU frame. Stale-frame drawing hides it during interaction, but newly exposed borders stay empty until the frame arrives.

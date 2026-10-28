@@ -21,6 +21,8 @@ std::expected<void, enim::Error> ConvertPass::init_raw(const TextureFormat& dst,
 
     this->texture = Texture::create(dst, size);
     this->texture.allocate();
+    // display textures carry mip storage from the start, so enabling mipmaps later doesn't relocate the image
+    this->texture.allocate_mip_levels();
 
     auto fbo_result = Framebuffer::create(this->texture);
     if (!fbo_result)

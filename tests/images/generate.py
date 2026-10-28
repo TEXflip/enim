@@ -87,6 +87,11 @@ def main() -> None:
         "bmp_argb32_bitfields_large.bmp": lambda p: write_bmp(
             p, pattern(6000, 6000)[..., [3, 0, 1, 2]], masks=(0x0000FF00, 0x00FF0000, 0xFF000000, 0x000000FF)
         ),
+        # large DirectUpload images: mipmaps take several steps (RGB8 and RGBA8 textures)
+        "bmp_bgr24_large.bmp": lambda p: write_bmp(p, bgr(pattern(6000, 6000))),
+        "bmp_bgra32_bitfields_large.bmp": lambda p: write_bmp(
+            p, pattern(6000, 6000)[..., [2, 1, 0, 3]], masks=(0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000)
+        ),
     }
 
     for name, write in cases.items():

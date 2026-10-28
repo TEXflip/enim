@@ -30,10 +30,18 @@ void Texture::allocate() {
                  GL_UNSIGNED_BYTE, nullptr);
 }
 
-void Texture::generate_mipmaps() {
+void Texture::set_mipmaps(bool enabled) {
     glBindTexture(GL_TEXTURE_2D, this->id);
+    if (!enabled) {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 0);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        return;
+    }
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 1000);
-    glGenerateMipmap(GL_TEXTURE_2D);
+    if (!this->has_mip_chain) {
+        glGenerateMipmap(GL_TEXTURE_2D);
+        this->has_mip_chain = true;
+    }
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
 }
 

@@ -34,6 +34,10 @@ void Window::on_key_pressed(const RGFW_event& event) {
         this->window_state.fit();
         this->request_redraw();
         break;
+    case RGFW_keyM:
+        if (this->renderer && this->renderer->toggle_mipmaps())
+            this->request_redraw();
+        break;
     default:
         break;
     }

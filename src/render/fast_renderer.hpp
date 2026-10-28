@@ -19,7 +19,8 @@ struct FastRenderer : public ImageRenderer {
     LoadPlan plan;
     ImagePass image_pass;
     Texture texture;
-    bool flip_y = false; // the texture rows are stored bottom-up
+    bool flip_y = false;  // the texture rows are stored bottom-up
+    bool mipmaps = false; // trilinear minification, toggled with M; the chain is generated on first use
 
     FastRenderer(std::unique_ptr<ImageSource> source, const LoadPlan& plan) : source(std::move(source)), plan(plan) {}
 
@@ -27,6 +28,7 @@ struct FastRenderer : public ImageRenderer {
     void update(const ViewTransform& view) override;
     void draw(const ViewTransform& view) override;
     bool loading() const override { return this->convert_job != nullptr; }
+    bool toggle_mipmaps() override;
     Vec2f image_size() const override;
 
   private:

@@ -35,7 +35,7 @@ struct ConvertPass {
     /// @brief The target texture while it is being filled (level 0 only), to draw progressively.
     const Texture& target() const { return this->texture; }
 
-    /// @brief Generates the mipmaps, releases the FBO and the program, and hands over the display texture.
+    /// @brief Releases the FBO and the program, and hands over the display texture (level 0 only).
     Texture finish();
 
   private:

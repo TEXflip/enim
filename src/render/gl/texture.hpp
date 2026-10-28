@@ -14,6 +14,7 @@ struct Texture {
     GLuint id = 0;
     Vec2i size{0, 0};
     TextureFormat format;
+    bool has_mip_chain = false; // levels 1..N have been generated
 
     Texture() = default;
     Texture(const Texture&) = delete;
@@ -23,6 +24,7 @@ struct Texture {
         std::swap(this->id, other.id);
         this->size = other.size;
         this->format = other.format;
+        this->has_mip_chain = other.has_mip_chain;
         return *this;
     }
     ~Texture() { glDeleteTextures(1, &this->id); }
@@ -33,8 +35,9 @@ struct Texture {
     /// @brief Allocates level 0 storage with undefined contents, for textures filled by rendering into them.
     void allocate();
 
-    /// @brief Generates the full mip chain and enables trilinear minification.
-    void generate_mipmaps();
+    /// @brief Enables trilinear minification, generating the mip chain the first time, or goes back to level 0 only.
+    /// The texture contents must be complete. A disabled chain is kept, so enabling it again is instant.
+    void set_mipmaps(bool enabled);
 };
 
 } // namespace enim

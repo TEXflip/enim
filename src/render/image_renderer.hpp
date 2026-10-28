@@ -24,6 +24,10 @@ struct ImageRenderer {
     /// @brief True while the image is still being loaded: the window keeps redrawing, and update() advances the load.
     virtual bool loading() const { return false; }
 
+    /// @brief Switches mipmapped minification on or off (fast mode only).
+    /// @return True if the renderer supports mipmaps and a redraw is needed.
+    virtual bool toggle_mipmaps() { return false; }
+
     /// @brief Size of the full resolution image, in image px.
     virtual Vec2f image_size() const = 0;
 };

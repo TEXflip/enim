@@ -39,8 +39,7 @@ std::expected<void, enim::Error> ConvertPass::init_raw(const TextureFormat& dst,
     glUseProgram(this->program);
     glUniform1i(glGetUniformLocation(this->program, "raw"), 0);
     glUniform4i(glGetUniformLocation(this->program, "channel_map"), texel.source[0], texel.source[1], texel.source[2], texel.source[3]);
-    glUniform4f(glGetUniformLocation(this->program, "constant_value"), texel.constant[0], texel.constant[1], texel.constant[2],
-                texel.constant[3]);
+    glUniform4f(glGetUniformLocation(this->program, "constant_value"), texel.constant[0], texel.constant[1], texel.constant[2], texel.constant[3]);
     glUniform2f(glGetUniformLocation(this->program, "value_range"), display.range.x, display.range.y);
 
     return {};
@@ -82,7 +81,6 @@ Texture ConvertPass::finish() {
     this->fbo = Framebuffer{};
     glDeleteProgram(this->program);
     this->program = 0;
-    this->texture.generate_mipmaps();
     return std::move(this->texture);
 }
 

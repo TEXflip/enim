@@ -53,7 +53,7 @@ std::expected<void, enim::Error> FastRenderer::upload_direct() {
     if (GLenum err = glGetError(); err != GL_NO_ERROR)
         return std::unexpected(enim::Error{enim::ErrorCode::ImageLoadError, "glTexImage2D failed with GL error " + std::to_string(err)});
 
-    this->texture.generate_mipmaps();
+    this->texture.set_mipmaps(this->mipmaps);
     return {};
 }
 
@@ -104,6 +104,7 @@ void FastRenderer::convert_next_band() {
         return;
 
     this->texture = job.pass.finish();
+    this->texture.set_mipmaps(this->mipmaps);
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - job.start);
     PLOG_INFO << "GPU convert done in " << elapsed.count() << " ms";
     this->convert_job.reset();
@@ -117,6 +118,22 @@ void FastRenderer::update(const ViewTransform& view) {
 void FastRenderer::draw(const ViewTransform& view) {
     const Texture& current = this->convert_job ? this->convert_job->pass.target() : this->texture;
     this->image_pass.draw(current, view, this->flip_y);
+}
+
+bool FastRenderer::toggle_mipmaps() {
+    this->mipmaps = !this->mipmaps;
+    // while converting, the texture is still incomplete: the setting is applied when the last band is done
+    if (!this->convert_job) {
+        auto start = std::chrono::steady_clock::now();
+        this->texture.set_mipmaps(this->mipmaps);
+        if (this->mipmaps) {
+            auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
+            PLOG_INFO << "Mipmaps enabled (" << elapsed.count() << " ms)";
+        }
+    }
+    if (!this->mipmaps)
+        PLOG_INFO << "Mipmaps disabled";
+    return true;
 }
 
 Vec2f FastRenderer::image_size() const {

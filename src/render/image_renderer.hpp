@@ -21,6 +21,9 @@ struct ImageRenderer {
     /// @brief Draws the image for the given view into the current framebuffer.
     virtual void draw(const ViewTransform& view) = 0;
 
+    /// @brief True while the image is still being loaded: the window keeps redrawing, and update() advances the load.
+    virtual bool loading() const { return false; }
+
     /// @brief Size of the full resolution image, in image px.
     virtual Vec2f image_size() const = 0;
 };

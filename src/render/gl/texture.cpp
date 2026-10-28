@@ -23,6 +23,13 @@ Texture Texture::create(const TextureFormat& format, Vec2i size) {
     return texture;
 }
 
+void Texture::allocate() {
+    glBindTexture(GL_TEXTURE_2D, this->id);
+    // no data: format and type only need to be compatible with a non-integer internal format
+    glTexImage2D(GL_TEXTURE_2D, 0, static_cast<GLint>(this->format.internal_format), this->size.x, this->size.y, 0, GL_RGBA,
+                 GL_UNSIGNED_BYTE, nullptr);
+}
+
 void Texture::generate_mipmaps() {
     glBindTexture(GL_TEXTURE_2D, this->id);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 1000);

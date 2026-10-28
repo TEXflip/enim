@@ -1,6 +1,7 @@
 #pragma once
 
 #include <expected>
+#include <initializer_list>
 
 #include <glad/glad.h>
 
@@ -8,9 +9,10 @@
 
 namespace enim {
 
-std::expected<GLuint, enim::Error> compile_shader(const char* source, GLenum type);
+/// @brief Compiles a shader from sources concatenated in order (the first one starts with #version).
+std::expected<GLuint, enim::Error> compile_shader(std::initializer_list<const char*> sources, GLenum type);
 
 /// @brief Compiles and links a vertex + fragment program.
-std::expected<GLuint, enim::Error> link_program(const char* vert_source, const char* frag_source);
+std::expected<GLuint, enim::Error> link_program(std::initializer_list<const char*> vert_sources, std::initializer_list<const char*> frag_sources);
 
 } // namespace enim

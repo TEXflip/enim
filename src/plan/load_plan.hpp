@@ -38,6 +38,7 @@ struct LoadPlan {
     DisplayParams display;
     TextureFormat texture;                          // display texture (fast) or frame texture (normal)
     std::size_t fast_bytes = 0;                     // GPU memory fast mode needs: texture + mipmaps + transient
+    std::size_t band_bytes = 0;                     // GpuConvert: staging buffer budget for one band of rows
 };
 
 const char* to_string(Mode mode);

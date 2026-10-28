@@ -35,9 +35,12 @@ add_executable(enim
     src/window/events.cpp
     src/window/gl_debug_helpers.cpp
     src/window/rgfw.cpp
+    src/render/gl/framebuffer.cpp
     src/render/gl/program.cpp
+    src/render/gl/raw_buffer.cpp
     src/render/gl/texture.cpp
     src/render/gl/texture_format.cpp
+    src/render/gpu_passes/convert_pass.cpp
     src/render/image_pass.cpp
     src/render/fast_renderer.cpp
     src/settings/settings.cpp

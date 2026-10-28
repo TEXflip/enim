@@ -48,17 +48,6 @@ std::optional<GLenum> gl_type(SampleType sample) {
 
 std::size_t align_up(std::size_t value, std::size_t alignment) { return (value + alignment - 1) / alignment * alignment; }
 
-/// @brief The source channel the display wants in each texture channel.
-std::array<std::int8_t, 4> wanted_channels(const enim::TextureFormat& tex, const enim::DisplayParams& display) {
-    const auto& map = display.channel_map;
-    switch (tex.channels) {
-    case 1: return {map[0], -1, -1, -1};
-    case 2: return {map[0], map[3], -1, -1};
-    case 3: return {map[0], map[1], map[2], -1};
-    default: return {map[0], map[1], map[2], map[3]};
-    }
-}
-
 /// @brief GL pixel format reading the stored channels so that texture channel k gets the wanted source channel.
 std::optional<GLenum> pixel_format(std::uint8_t stored, const std::array<std::int8_t, 4>& wanted, std::uint8_t tex_channels) {
     constexpr GLenum rgba_formats[] = {GL_RED, GL_RG, GL_RGB, GL_RGBA};
@@ -104,13 +93,31 @@ TextureFormat choose_texture_format(const PixelLayout& layout, const DisplayPara
 }
 
 TextureFormat renderable(const TextureFormat& format) {
-    if (format.channels != 3)
-        return format;
     TextureFormat out = format;
-    out.channels = 4;
-    out.internal_format = kInternalFormats[format_row(format.sample)][3];
-    out.swizzle = {GL_RED, GL_GREEN, GL_BLUE, GL_ONE};
+    if (out.sample == SampleType::I8)
+        out.sample = SampleType::U8;
+    else if (out.sample == SampleType::I16)
+        out.sample = SampleType::U16;
+    if (out.channels == 3) {
+        out.channels = 4;
+        out.swizzle = {GL_RED, GL_GREEN, GL_BLUE, GL_ONE};
+    }
+    out.internal_format = kInternalFormats[format_row(out.sample)][out.channels - 1];
     return out;
+}
+
+TexelChannels texel_channels(const TextureFormat& tex, const DisplayParams& display) {
+    const auto& map = display.channel_map;
+    const auto& constant = display.constant;
+    TexelChannels texel;
+    if (tex.channels <= 2) {
+        texel.source = {map[0], map[3], -1, -1};
+        texel.constant = {constant[0], constant[3], 0, 1};
+    } else {
+        texel.source = map;
+        texel.constant = constant;
+    }
+    return texel;
 }
 
 std::optional<UploadParams> direct_upload_params(const PixelLayout& layout, std::size_t width, const TextureFormat& tex,
@@ -125,7 +132,7 @@ std::optional<UploadParams> direct_upload_params(const PixelLayout& layout, std:
     if (!type)
         return std::nullopt;
 
-    std::optional<GLenum> format = pixel_format(layout.channels, wanted_channels(tex, display), tex.channels);
+    std::optional<GLenum> format = pixel_format(layout.channels, texel_channels(tex, display).source, tex.channels);
     if (!format)
         return std::nullopt;
 

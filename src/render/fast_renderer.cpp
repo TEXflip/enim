@@ -14,6 +14,8 @@ std::expected<void, enim::Error> FastRenderer::init() {
     switch (this->plan.fast) {
     case FastStrategy::DirectUpload:
         return this->upload_direct();
+    case FastStrategy::GpuConvert:
+        return this->start_gpu_convert();
     default:
         return std::unexpected(enim::Error{enim::ErrorCode::ImageLoadError,
                                            std::string("Fast mode strategy not implemented yet: ") + to_string(this->plan.fast)});
@@ -55,8 +57,66 @@ std::expected<void, enim::Error> FastRenderer::upload_direct() {
     return {};
 }
 
+std::expected<void, enim::Error> FastRenderer::start_gpu_convert() {
+    const ImageInfo& info = this->source->info();
+    const PixelLayout& layout = info.layout;
+
+    if (this->source->mapped_pixels().empty())
+        return std::unexpected(enim::Error{enim::ErrorCode::ImageLoadError, "Failed to get image buffer"});
+
+    auto job = std::make_unique<GpuConvertJob>();
+    job->rows_per_band = std::min(this->plan.band_bytes / layout.stride, info.height);
+    if (job->rows_per_band == 0)
+        return std::unexpected(enim::Error{enim::ErrorCode::ImageLoadError, "A single image row exceeds the GPU convert staging buffer"});
+
+    Vec2i size{static_cast<std::int32_t>(info.width), static_cast<std::int32_t>(info.height)};
+    auto pass_result = job->pass.init_raw(this->plan.texture, size, this->plan.display);
+    if (!pass_result)
+        return pass_result;
+    job->band.allocate(job->rows_per_band * layout.stride);
+    job->start = std::chrono::steady_clock::now();
+
+    PLOG_INFO << "Image size (WxH): " << info.width << "x" << info.height << ", " << static_cast<int>(layout.channels)
+              << " stored / " << static_cast<int>(this->plan.texture.channels) << " texture channels, "
+              << (info.height + job->rows_per_band - 1) / job->rows_per_band << " band(s) of " << job->rows_per_band << " rows";
+
+    this->flip_y = false; // the convert pass writes top-down
+    this->convert_job = std::move(job);
+    return {};
+}
+
+void FastRenderer::convert_next_band() {
+    GpuConvertJob& job = *this->convert_job;
+    const ImageInfo& info = this->source->info();
+    const std::size_t stride = info.layout.stride;
+
+    std::size_t rows = std::min(job.rows_per_band, info.height - job.next_row);
+    std::span<const std::uint8_t> bytes = this->source->mapped_pixels().subspan(job.next_row * stride, rows * stride);
+
+    job.band.upload(0, bytes);
+    job.pass.from_raw_band(job.band, info.layout, job.next_row, rows);
+    job.next_row += rows;
+
+    if (GLenum err = glGetError(); err != GL_NO_ERROR)
+        PLOG_ERROR << "GL error " << err << " in GPU convert band at row " << job.next_row - rows;
+
+    if (job.next_row < info.height)
+        return;
+
+    this->texture = job.pass.finish();
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - job.start);
+    PLOG_INFO << "GPU convert done in " << elapsed.count() << " ms";
+    this->convert_job.reset();
+}
+
+void FastRenderer::update(const ViewTransform& view) {
+    if (this->convert_job)
+        this->convert_next_band();
+}
+
 void FastRenderer::draw(const ViewTransform& view) {
-    this->image_pass.draw(this->texture, view, this->flip_y);
+    const Texture& current = this->convert_job ? this->convert_job->pass.target() : this->texture;
+    this->image_pass.draw(current, view, this->flip_y);
 }
 
 Vec2f FastRenderer::image_size() const {

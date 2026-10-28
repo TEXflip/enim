@@ -15,9 +15,9 @@ std::string gl_get_infolog_message(void (*logfunction)(GLuint, GLsizei, GLsizei*
 
 namespace enim {
 
-std::expected<GLuint, enim::Error> compile_shader(const char* source, GLenum type) {
+std::expected<GLuint, enim::Error> compile_shader(std::initializer_list<const char*> sources, GLenum type) {
     GLuint shader = glCreateShader(type);
-    glShaderSource(shader, 1, &source, NULL);
+    glShaderSource(shader, static_cast<GLsizei>(sources.size()), sources.begin(), NULL);
     glCompileShader(shader);
 
     GLint ec = 0;
@@ -32,12 +32,12 @@ std::expected<GLuint, enim::Error> compile_shader(const char* source, GLenum typ
     return shader;
 }
 
-std::expected<GLuint, enim::Error> link_program(const char* vert_source, const char* frag_source) {
-    auto vert_result = compile_shader(vert_source, GL_VERTEX_SHADER);
+std::expected<GLuint, enim::Error> link_program(std::initializer_list<const char*> vert_sources, std::initializer_list<const char*> frag_sources) {
+    auto vert_result = compile_shader(vert_sources, GL_VERTEX_SHADER);
     if (!vert_result)
         return std::unexpected(vert_result.error());
 
-    auto frag_result = compile_shader(frag_source, GL_FRAGMENT_SHADER);
+    auto frag_result = compile_shader(frag_sources, GL_FRAGMENT_SHADER);
     if (!frag_result) {
         glDeleteShader(vert_result.value());
         return std::unexpected(frag_result.error());

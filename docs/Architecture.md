@@ -27,7 +27,7 @@ The texture keeps the original bit depth whenever OpenGL has a filterable textur
 
 # Code architecture
 
-> Status: target design, partially built. Done: `PixelLayout`/`ImageInfo`, `ImageSource` + `RowSink` interfaces, `BmpSource` (24/32-bit, BI_RGB and byte-aligned bitfields, both row orders), `io/detect`, `DisplayParams`, `choose_texture_format` + direct upload rules, `make_plan`, `plan/loader` (no threads yet), `ImagePass`, and `FastRenderer` with the `DirectUpload` strategy (mipmaps, swizzle). Next: `GpuConvert`, then `StreamUpload`/`GpuDecode`, then normal mode. Normal mode currently falls back to fast mode when the image fits in a texture.
+> Status: target design, partially built. Done: `PixelLayout`/`ImageInfo`, `ImageSource` + `RowSink` interfaces, `BmpSource` (24/32-bit, BI_RGB and byte-aligned bitfields, both row orders), `io/detect`, `DisplayParams`, `choose_texture_format` + direct upload rules, `make_plan`, `plan/loader` (no threads yet), `ImagePass`, and `FastRenderer` with the `DirectUpload` and `GpuConvert` strategies (`RawBuffer`, `Framebuffer`, `ConvertPass` raw variant; mipmaps, swizzle). `--force-gpu-convert` (debug) sends uploadable layouts through `GpuConvert` too. Next: `StreamUpload`/`GpuDecode` (with `ConvertPass::init_texture`), then normal mode. Normal mode currently falls back to fast mode when the image fits in a texture.
 
 ## Pipeline
 
@@ -194,14 +194,17 @@ struct DecodePass { std::expected<Texture, Error> run(const Texture& encoded, co
 
 /// One shader body (channel selection, depth conversion, range) with two input variants.
 struct ConvertPass {
-    ConvertPass(const TextureFormat& dst, Vec2i size, const DisplayParams& display); // allocates the FBO texture
-    void from_texture(const Texture& decoded);                                        // GpuDecode
-    void from_raw_band(const RawBuffer& band, const PixelLayout& src, std::size_t y0, std::size_t rows); // GpuConvert
+    // allocate the FBO texture (cleared to transparent) and build the input variant's program
+    std::expected<void, Error> init_raw(const TextureFormat& dst, Vec2i size, const DisplayParams& display);     // GpuConvert
+    std::expected<void, Error> init_texture(const TextureFormat& dst, Vec2i size, const DisplayParams& display); // GpuDecode (todo)
+    void from_raw_band(const RawBuffer& band, const PixelLayout& src, std::size_t first_row, std::size_t rows);
+    void from_texture(const Texture& decoded);
+    const Texture& target() const;                                                    // drawn while bands arrive
     Texture finish();                                                                 // mipmaps, releases the FBO
 };
 ```
 
-The FBO formats must be color-renderable. GL 3.3 does not guarantee that for 3-channel formats, so RGB is rendered as RGBA.
+The FBO formats must be color-renderable. GL 3.3 does not guarantee that for 3-channel or SNORM formats, so `renderable()` turns RGB into RGBA and SNORM into UNORM of the same depth (the conversion maps `range` to [0, 1], so nothing is lost). The convert shaders are built from several sources: `#version`, the include files, then the pass body.
 
 ### Mipmaps
 
@@ -410,7 +413,7 @@ src/
     tile_selection.*     ViewTransform → level + TileKeys, pure
     view_sampler.*       FrameRequest → Frame (resample, convert, preview fallback)
   render/
-    image_renderer.hpp   init / update / draw / image_size
+    image_renderer.hpp   init / update / draw / loading / image_size (the window keeps redrawing while loading())
     gl/                  program utils, debug helpers, texture.*, framebuffer.*, raw_buffer.*
                          texture_format.*  choose_texture_format, GL upload params (format/type/unpack)
     image_pass.*         textured quad + ViewTransform → screen

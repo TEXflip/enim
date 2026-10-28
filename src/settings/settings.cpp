@@ -60,6 +60,7 @@ void print_help(const char* program_name) {
     std::printf("  --force-normal-mode    Enable normal mode\n");
     std::printf("  --fast-max-mem <size>  GPU memory budget for fast mode, e.g. 512M, 2G (default 1G,\n");
     std::printf("                         or the ENIM_FAST_MAX_MEM environment variable)\n");
+    std::printf("  --force-gpu-convert    Debug: convert uncompressed images on the GPU even if they can be uploaded as is\n");
 }
 
 
@@ -80,6 +81,8 @@ Settings parse_args(int argc, char* argv[]) {
             settings.force_fast_mode = true;
         } else if (std::strcmp(argv[i], "--force-normal-mode") == 0) {
             settings.force_normal_mode = true;
+        } else if (std::strcmp(argv[i], "--force-gpu-convert") == 0) {
+            settings.force_gpu_convert = true;
         } else if (std::strcmp(argv[i], "--fast-max-mem") == 0) {
             if (i + 1 >= argc) {
                 std::fprintf(stderr, "--fast-max-mem needs a value\n");

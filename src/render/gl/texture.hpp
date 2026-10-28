@@ -30,6 +30,9 @@ struct Texture {
     /// @brief Creates the texture object with the display sampling state (filters, wrap, swizzle). Storage is not allocated.
     static Texture create(const TextureFormat& format, Vec2i size);
 
+    /// @brief Allocates level 0 storage with undefined contents, for textures filled by rendering into them.
+    void allocate();
+
     /// @brief Generates the full mip chain and enables trilinear minification.
     void generate_mipmaps();
 };

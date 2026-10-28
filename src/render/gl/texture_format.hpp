@@ -25,8 +25,18 @@ struct TextureFormat {
 /// @brief Picks the display texture format: displayed channels only, native depth when GL can filter it.
 TextureFormat choose_texture_format(const PixelLayout& layout, const DisplayParams& display);
 
-/// @brief The same format with 3 channels promoted to 4, for FBO targets (RGB is not guaranteed color-renderable).
+/// @brief The format to use as an FBO target: 3 channels are promoted to 4 and SNORM to UNORM (neither is guaranteed
+/// color-renderable in GL 3.3). The conversion maps the range to [0, 1] anyway, so UNORM loses nothing.
 TextureFormat renderable(const TextureFormat& format);
+
+/// @brief What a conversion writes into each texel channel (R, G, B, A of the texture, before the swizzle).
+struct TexelChannels {
+    std::array<std::int8_t, 4> source{-1, -1, -1, -1}; // source channel, -1 = constant
+    std::array<float, 4> constant{0, 0, 0, 1};
+};
+
+/// @brief Maps the display channels onto the channels the texture stores: mono is (gray, alpha), color is (R, G, B, A).
+TexelChannels texel_channels(const TextureFormat& tex, const DisplayParams& display);
 
 /// @brief Client-side parameters for uploading source rows with glTexImage2D.
 struct UploadParams {

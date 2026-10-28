@@ -27,7 +27,9 @@ LoadPlan make_plan(const ImageInfo& info, const FormatCaps& caps, const GpuLimit
     TextureFormat tex = choose_texture_format(info.layout, plan.display);
 
     if (caps.raw_mappable)
-        plan.fast = direct_upload_params(info.layout, info.width, tex, plan.display) ? FastStrategy::DirectUpload : FastStrategy::GpuConvert;
+        plan.fast = direct_upload_params(info.layout, info.width, tex, plan.display) && !settings.force_gpu_convert
+                        ? FastStrategy::DirectUpload
+                        : FastStrategy::GpuConvert;
     else if (caps.gpu_decodable)
         plan.fast = FastStrategy::GpuDecode;
     else
@@ -39,8 +41,9 @@ LoadPlan make_plan(const ImageInfo& info, const FormatCaps& caps, const GpuLimit
 
     std::size_t tex_bytes = info.width * info.height * tex.bytes_per_pixel() * 4 / 3; // + mip chain
     std::size_t transient_bytes = 0;
+    plan.band_bytes = gpu_convert_band_bytes(gpu);
     if (plan.fast == FastStrategy::GpuConvert)
-        transient_bytes = std::min(gpu_convert_band_bytes(gpu), info.layout.stride * info.height);
+        transient_bytes = std::min(plan.band_bytes, info.layout.stride * info.height);
     else if (plan.fast == FastStrategy::GpuDecode)
         transient_bytes = 2 * info.width * info.height * tex.bytes_per_pixel(); // encoded + decoded, upper bound
     plan.fast_bytes = tex_bytes + transient_bytes;

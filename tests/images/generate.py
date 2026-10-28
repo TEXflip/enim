@@ -83,6 +83,10 @@ def main() -> None:
         "bmp_argb32_bitfields_bottomup.bmp": lambda p: write_bmp(
             p, even[..., [3, 0, 1, 2]], masks=(0x0000FF00, 0x00FF0000, 0xFF000000, 0x000000FF)
         ),
+        # large ARGB (~144 MB): GpuConvert needs several bands of the 64 MB staging buffer
+        "bmp_argb32_bitfields_large.bmp": lambda p: write_bmp(
+            p, pattern(6000, 6000)[..., [3, 0, 1, 2]], masks=(0x0000FF00, 0x00FF0000, 0xFF000000, 0x000000FF)
+        ),
     }
 
     for name, write in cases.items():

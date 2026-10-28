@@ -162,9 +162,13 @@ void Window::poll_events() {
 
     RGFW_event event;
     while (!RGFW_window_shouldClose(this->win)) {
-        RGFW_waitForEvent(RGFW_eventWaitNext);
+        bool loading = this->renderer && this->renderer->loading();
+        RGFW_waitForEvent(loading ? RGFW_eventNoWait : RGFW_eventWaitNext);
         while (RGFW_window_checkEvent(win, &event))
             this->dispatch_events(event);
+        // each redraw lets the renderer advance the load by one step
+        if (loading)
+            this->request_redraw();
     }
 }
 

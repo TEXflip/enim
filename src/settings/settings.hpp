@@ -14,6 +14,7 @@ struct Settings {
     bool debug = false;
     bool force_fast_mode = false;
     bool force_normal_mode = false;
+    bool force_gpu_convert = false; // debug: convert on the GPU even when the layout could be uploaded directly
     std::size_t fast_mode_max_bytes = kDefaultFastModeMaxBytes; // --fast-max-mem, then ENIM_FAST_MAX_MEM
     std::string image_path;
 };

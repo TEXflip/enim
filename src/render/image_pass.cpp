@@ -12,7 +12,7 @@ ImagePass::~ImagePass() {
 }
 
 std::expected<void, enim::Error> ImagePass::init() {
-    auto program_result = link_program(image_vert_shader, image_frag_shader);
+    auto program_result = link_program({image_vert_shader}, {image_frag_shader});
     if (!program_result)
         return std::unexpected(program_result.error());
     this->program = program_result.value();

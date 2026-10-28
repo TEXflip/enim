@@ -70,6 +70,11 @@ set(LIBS plog::plog glad)
 if (WIN32)
     set(LIBS ${LIBS} opengl32 gdi32 shell32 user32 advapi32 comctl32)
     target_compile_definitions(enim PRIVATE ENIM_OS_WIN)
+    # GUI program: no console window when opened from Explorer (main.cpp attaches to the terminal's console when
+    # there is one). Debug builds keep their own console for the logs.
+    if (NOT CMAKE_BUILD_TYPE STREQUAL "Debug")
+        set_target_properties(enim PROPERTIES WIN32_EXECUTABLE ON)
+    endif()
 elseif(APPLE)
     set(LIBS ${LIBS} "-framework OpenGL -framework Cocoa")
     target_compile_definitions(enim PRIVATE ENIM_OS_MAC)

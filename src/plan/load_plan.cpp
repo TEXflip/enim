@@ -27,7 +27,8 @@ LoadPlan make_plan(const ImageInfo& info, const FormatCaps& caps, const GpuLimit
     TextureFormat tex = choose_texture_format(info.layout, plan.display);
 
     if (caps.raw_mappable)
-        plan.fast = direct_upload_params(info.layout, info.width, tex, plan.display) && !settings.force_gpu_convert
+        plan.fast = settings.force_stream_upload ? FastStrategy::StreamUpload
+                    : direct_upload_params(info.layout, info.width, tex, plan.display) && !settings.force_gpu_convert
                         ? FastStrategy::DirectUpload
                         : FastStrategy::GpuConvert;
     else if (caps.gpu_decodable)
@@ -38,6 +39,9 @@ LoadPlan make_plan(const ImageInfo& info, const FormatCaps& caps, const GpuLimit
     // FBO targets can't be RGB
     if (plan.fast == FastStrategy::GpuConvert || plan.fast == FastStrategy::GpuDecode)
         tex = renderable(tex);
+    // the CPU converter maps the range to [0, 1], like the GPU convert pass
+    else if (plan.fast == FastStrategy::StreamUpload)
+        tex = unsigned_normalized(tex);
 
     std::size_t tex_bytes = info.width * info.height * tex.bytes_per_pixel() * 4 / 3; // + mip chain
     std::size_t transient_bytes = 0;

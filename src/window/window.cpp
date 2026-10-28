@@ -166,8 +166,9 @@ void Window::poll_events() {
         RGFW_waitForEvent(loading ? RGFW_eventNoWait : RGFW_eventWaitNext);
         while (RGFW_window_checkEvent(win, &event))
             this->dispatch_events(event);
-        // each redraw lets the renderer advance the load by one step
-        if (loading)
+        // each redraw lets the renderer advance the load by one step; checked again after waiting, because a worker
+        // thread (StreamUpload decoder) wakes the loop when it has queued work
+        if (this->renderer && this->renderer->loading())
             this->request_redraw();
     }
 }

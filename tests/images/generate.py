@@ -1,7 +1,9 @@
 #!/usr/bin/python3
 """Generates test images covering the pixel layouts enim must handle.
 
-Usage: uv run tests/images/generate.py [output_dir]   (default: tests/images/out)
+Usage: uv run tests/images/generate.py [--force] [output_dir]   (default: tests/images/out)
+
+Existing files are kept unless --force is given (the pure Python QOI encoder is slow on large images).
 
 Every image shows the same pattern, so a wrong channel order, row order or stride is easy to spot:
 - red grows left to right, green grows top to bottom;
@@ -27,6 +29,17 @@ def pattern(width: int, height: int) -> np.ndarray:
     rgba[: height // 4, : width // 4, 2] = 255
     rgba[..., 3] = np.broadcast_to(x, (height, width))
     return rgba
+
+
+def photo_like(width: int, height: int) -> np.ndarray:
+    """RGB uint8 image with smooth gradients, flat areas and noise, so that every QOI op is used."""
+    rng = np.random.default_rng(0)
+    rgba = pattern(width, height)
+    rgb = rgba[..., :3].astype(np.int16)
+    noisy = rng.integers(-6, 7, size=rgb.shape, dtype=np.int16)
+    rgb[:, width // 2 :] += noisy[:, width // 2 :]
+    rgb[height // 2 :, : width // 4] = (40, 90, 160)  # flat block: runs
+    return np.clip(rgb, 0, 255).astype(np.uint8)
 
 
 def write_bmp(path: Path, pixels: np.ndarray, top_down: bool = False, masks: tuple[int, ...] | None = None) -> None:
@@ -56,8 +69,55 @@ def write_bmp(path: Path, pixels: np.ndarray, top_down: bool = False, masks: tup
     path.write_bytes(header + dib + data)
 
 
+def encode_qoi(pixels: np.ndarray) -> bytes:
+    """Encodes an RGB or RGBA uint8 image (height, width, 3 or 4) as QOI (qoiformat.org), top row first."""
+    height, width, channels = pixels.shape
+    out = bytearray(b"qoif" + struct.pack(">IIBB", width, height, channels, 0))
+    flat = pixels.reshape(-1, channels)
+    if channels == 3:
+        flat = np.hstack([flat, np.full((flat.shape[0], 1), 255, dtype=np.uint8)])
+    index = [(0, 0, 0, 0)] * 64
+    prev = (0, 0, 0, 255)
+    run = 0
+    for r, g, b, a in map(tuple, flat.tolist()):
+        px = (r, g, b, a)
+        if px == prev:
+            run += 1
+            if run == 62:
+                out.append(0xC0 | (run - 1))
+                run = 0
+            continue
+        if run:
+            out.append(0xC0 | (run - 1))
+            run = 0
+        h = (r * 3 + g * 5 + b * 7 + a * 11) % 64
+        if index[h] == px:
+            out.append(h)
+        else:
+            index[h] = px
+            if a != prev[3]:
+                out += bytes((0xFF, r, g, b, a))
+            else:
+                dr = (r - prev[0] + 128) % 256 - 128
+                dg = (g - prev[1] + 128) % 256 - 128
+                db = (b - prev[2] + 128) % 256 - 128
+                if -2 <= dr <= 1 and -2 <= dg <= 1 and -2 <= db <= 1:
+                    out.append(0x40 | (dr + 2) << 4 | (dg + 2) << 2 | (db + 2))
+                elif -32 <= dg <= 31 and -8 <= dr - dg <= 7 and -8 <= db - dg <= 7:
+                    out += bytes((0x80 | (dg + 32), (dr - dg + 8) << 4 | (db - dg + 8)))
+                else:
+                    out += bytes((0xFE, r, g, b))
+        prev = px
+    if run:
+        out.append(0xC0 | (run - 1))
+    return bytes(out + bytes(7) + b"")
+
+
 def main() -> None:
-    out = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(__file__).parent / "out"
+    args = sys.argv[1:]
+    force = "--force" in args
+    args = [a for a in args if a != "--force"]
+    out = Path(args[0]) if args else Path(__file__).parent / "out"
     out.mkdir(parents=True, exist_ok=True)
 
     # odd width: 24-bit rows need padding to 4 bytes
@@ -92,11 +152,20 @@ def main() -> None:
         "bmp_bgra32_bitfields_large.bmp": lambda p: write_bmp(
             p, pattern(6000, 6000)[..., [2, 1, 0, 3]], masks=(0x00FF0000, 0x0000FF00, 0x000000FF, 0xFF000000)
         ),
+        # QOI (CPU decoded, StreamUpload): same patterns as bmp_bgr24_topdown and bmp_rgba32_bitfields_topdown
+        "qoi_rgb_odd.qoi": lambda p: p.write_bytes(encode_qoi(odd[..., :3])),
+        "qoi_rgba.qoi": lambda p: p.write_bytes(encode_qoi(even)),
+        # a photo-like image, several bands of rows
+        "qoi_rgb_large.qoi": lambda p: p.write_bytes(encode_qoi(photo_like(3000, 2000))),
+        # cut in half: the decoder must report an error and keep the rows it decoded
+        "qoi_rgb_truncated.qoi": lambda p: p.write_bytes((lambda q: q[: len(q) // 2])(encode_qoi(odd[..., :3]))),
     }
 
     for name, write in cases.items():
-        write(out / name)
-        print(out / name)
+        path = out / name
+        if force or not path.exists():
+            write(path)
+        print(path)
 
 
 if __name__ == "__main__":

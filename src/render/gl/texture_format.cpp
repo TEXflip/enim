@@ -92,12 +92,27 @@ TextureFormat choose_texture_format(const PixelLayout& layout, const DisplayPara
     return tex;
 }
 
-TextureFormat renderable(const TextureFormat& format) {
+TextureFormat unsigned_normalized(const TextureFormat& format) {
     TextureFormat out = format;
     if (out.sample == SampleType::I8)
         out.sample = SampleType::U8;
     else if (out.sample == SampleType::I16)
         out.sample = SampleType::U16;
+    out.internal_format = kInternalFormats[format_row(out.sample)][out.channels - 1];
+    return out;
+}
+
+UploadParams texture_upload_params(const TextureFormat& format) {
+    constexpr GLenum formats[] = {GL_RED, GL_RG, GL_RGB, GL_RGBA};
+    UploadParams params;
+    params.format = formats[format.channels - 1];
+    params.type = gl_type(format.sample).value_or(GL_FLOAT);
+    params.alignment = 1;
+    return params;
+}
+
+TextureFormat renderable(const TextureFormat& format) {
+    TextureFormat out = unsigned_normalized(format);
     if (out.channels == 3) {
         out.channels = 4;
         out.swizzle = {GL_RED, GL_GREEN, GL_BLUE, GL_ONE};

@@ -9,13 +9,15 @@
 #include <plog/Log.h>
 
 #include <io/formats/bmp/bmp_source.hpp>
+#include <io/formats/qoi/qoi_source.hpp>
 
 namespace {
 
 using SourceFactory = std::function<std::unique_ptr<enim::ImageSource>()>;
 
 const std::unordered_map<std::string_view, SourceFactory> SOURCE_MAP{
-    {"BMP", []() { return std::make_unique<enim::BmpSource>(); }}
+    {"BMP", []() { return std::make_unique<enim::BmpSource>(); }},
+    {"QOI (Quite OK Image)", []() { return std::make_unique<enim::QoiSource>(); }}
 };
 
 } // namespace

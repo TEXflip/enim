@@ -27,7 +27,7 @@ The texture keeps the original bit depth whenever OpenGL has a filterable textur
 
 # Code architecture
 
-> Status: target design, partially built. Done: `PixelLayout`/`ImageInfo`, `ImageSource` + `RowSink` interfaces, `BmpSource` (24/32-bit, BI_RGB and byte-aligned bitfields, both row orders), `io/detect`, `DisplayParams`, `choose_texture_format` + direct upload rules, `make_plan`, `plan/loader` (no threads yet), `ImagePass`, and `FastRenderer` with the `DirectUpload` and `GpuConvert` strategies (`RawBuffer`, `Framebuffer`, `ConvertPass` raw variant; swizzle; mipmaps built progressively by `MipmapBuilder` after loading). `--force-gpu-convert` (debug) sends uploadable layouts through `GpuConvert` too. Next: `StreamUpload`/`GpuDecode` (with `ConvertPass::init_texture`), then normal mode. Normal mode currently falls back to fast mode when the image fits in a texture.
+> Status: target design, partially built. Done: `PixelLayout`/`ImageInfo`, `ImageSource` + `RowSink` interfaces, `BmpSource` (24/32-bit, BI_RGB and byte-aligned bitfields, both row orders), `QoiSource` (CPU-decoded, streamed), `io/detect`, `DisplayParams`, `choose_texture_format` + direct upload rules, `make_plan`, `plan/loader`, `ImagePass`, and `FastRenderer` with the `DirectUpload`, `GpuConvert` and `StreamUpload` strategies (`RawBuffer`, `Framebuffer`, `ConvertPass` raw variant; swizzle; mipmaps built progressively by `MipmapBuilder` after loading). `StreamUpload` comes with `PixelConverter`, `UploadQueue`, `TextureUploadSink` and `core/wakeup`; the decode thread is owned by the renderer for now, not by a `Loader` session. Debug flags: `--force-gpu-convert` and `--force-stream-upload` send uploadable BMPs through `GpuConvert` / `StreamUpload`. Next: `GpuDecode` (with `ConvertPass::init_texture`), then normal mode. Normal mode currently falls back to fast mode when the image fits in a texture.
 
 ## Pipeline
 
@@ -165,16 +165,41 @@ struct RawBuffer {                  // GL buffer + buffer texture view (GL_R32UI
 
 ### CPU conversion (`StreamUpload`)
 
+For formats only the CPU can decode (today QOI; later PNG, JPEG, ...). The image appears progressively, top to bottom:
+
+1. The display texture is created as for the other strategies (level 0 and mip storage allocated, render target set up while empty), then cleared to transparent so rows not decoded yet show the background.
+2. A **decode thread** (`std::jthread`) runs `ImageSource::decode()` into a `TextureUploadSink`. For each chunk of rows (64 for QOI) the sink converts them with the `PixelConverter` into the texture's layout, on that thread, and pushes the band to the `UploadQueue`, then wakes the main thread (`wake_main_thread()` → `RGFW_stopCheckEvents`). Bottom-up sources are written reversed, so the texture is always top-down.
+3. The **main thread** pops bands in `update()` and uploads them with `glTexSubImage2D`, up to 64 MB per frame. Between bands it waits for events, so no frames are drawn while the decoder works.
+4. When the decoder has finished and every band is uploaded, the decode thread is joined and the mipmaps are built.
+
+The queue is **bounded** (64 MB of converted rows): a decoder faster than the uploads waits in `push()`, so RAM use doesn't grow with the image. Stopping (closing the window during a decode) requests stop on the thread's `std::stop_token`: `push()` stops waiting, the decoder checks the token between chunks, and `~jthread` joins.
+
+**Errors:** a decode error (e.g. truncated file) arrives through `on_done()`. The rows decoded before it stay visible, the rest stays transparent, and the error is logged. QOI emits the complete rows of the failing chunk before reporting the error.
+
 ```cpp
 // pipeline/pixel_converter.hpp
-/// Converts native rows into display texture rows: channel selection, depth conversion, range.
+/// Converts native rows into display texture rows on the CPU: channel selection, depth conversion, range.
 struct PixelConverter {
-    PixelConverter(const PixelLayout& src, const TextureFormat& dst, const DisplayParams& display);
-    void convert_rows(const std::uint8_t* src, std::size_t src_stride, std::size_t count, std::uint8_t* dst) const;
+    PixelConverter(const PixelLayout& src, std::size_t width, const TextureFormat& dst, const DisplayParams& display);
+    std::size_t dst_row_bytes() const;
+    // dst_stride < 0 writes the rows in reverse order (bottom-up sources)
+    void convert_rows(const std::uint8_t* src, std::size_t src_stride, std::size_t count, std::uint8_t* dst, std::ptrdiff_t dst_stride) const;
+};
+
+// pipeline/upload_queue.hpp
+struct UploadBand { std::size_t first_row, rows; std::vector<std::uint8_t> pixels; };
+struct UploadQueue {                                   // bounded MPSC queue, main thread pops
+    bool push(UploadBand band, std::stop_token stop);  // waits for room; false if stopped
+    std::optional<UploadBand> pop();
+    void finish(std::expected<void, Error> result);    // end of stream
+    bool pending() const;                              // bands to upload, or a result not taken yet
+    std::optional<std::expected<void, Error>> take_result();
 };
 ```
 
-It is used by `TextureUploadSink` (fast mode) and by the `ViewSampler` (normal mode). A row band is converted on the decode thread, and only the converted band goes to the `UploadQueue`.
+- **`PixelConverter`:** the U8 source with the default range (every 8-bit format) is a channel shuffle. Everything else goes through a general per-sample path: read (any `SampleType`, byte swap), map `range` to [0, 1], write U8/U16 (clamped), F16 (float→half) or F32 (not clamped, for HDR). SNORM textures are replaced by UNORM for this strategy (`unsigned_normalized()`), like `GpuConvert`, since the range is mapped to [0, 1]. It is also meant for the `ViewSampler` (normal mode).
+- **`loading()`** is true only while bands are queued (or the result wasn't taken yet), so the window loop sleeps between bands. The window checks `loading()` again after waiting, since the decode thread is what woke it.
+- **Debug:** `--force-stream-upload` decodes uncompressed BMPs through `BmpSource::decode()` and this path, which exercises the converter on BGR/BGRX/BGRA/ARGB and bottom-up rows.
 
 ### GPU-decoded formats
 
@@ -383,7 +408,7 @@ With `TeeSink`, decoding and pyramid building happen in a single pass: coarse le
  pyramid thread      (if not tee'd) level0 mmap ──► pyramid levels on disk
  view sampler pool   FrameRequest ──► pyramid / level0 mmap ──► converted Frame bands ──► UploadQueue
                                                   │
- main thread (GL)    UploadQueue.drain(budget) ──► glTexSubImage2D ──► image shader
+ main thread (GL)    UploadQueue.pop() up to 64 MB per wake-up ──► glTexSubImage2D ──► image shader
                      DirectUpload: glTexSubImage2D from the mmap
                      GpuConvert: mmap band ──► RawBuffer ──► convert pass ──► FBO texture (band by band, once)
                      GpuDecode: encoded upload ──► decode pass ──► convert pass (once)
@@ -391,7 +416,7 @@ With `TeeSink`, decoding and pyramid building happen in a single pass: coarse le
                      ▲ woken by RGFW_stopCheckEvents() whenever something is queued
 ```
 
-All GL calls stay on the main thread; workers only hand over CPU buffers. `GpuConvert` needs no worker: the mmap is already readable, so the main thread uploads and converts one band per wake-up and redraws in between. A single `UploadQueue` type serves every mode. In normal mode, `TiledRenderer::update(view)` posts a new `FrameRequest` whenever the view, the framebuffer size or the display parameters change; bands from an older generation are dropped.
+All GL calls stay on the main thread; workers only hand over CPU buffers. `GpuConvert` needs no worker: the mmap is already readable, so the main thread uploads and converts one band per wake-up and redraws in between. A single `UploadQueue` type serves every mode. For `StreamUpload` the decode thread is a `std::jthread` owned by `FastRenderer` (a `StreamJob` holding the converter, the queue, the sink and the thread, destroyed thread first); it moves to the `Loader` session once normal mode needs several workers. In normal mode, `TiledRenderer::update(view)` posts a new `FrameRequest` whenever the view, the framebuffer size or the display parameters change; bands from an older generation are dropped.
 
 ## Coordinates
 
@@ -414,7 +439,7 @@ src/
     pixel_layout.hpp     SampleType, PixelLayout, ChannelRole, ImageInfo
     image_source.hpp     ImageSource, FormatCaps
     row_sink.hpp
-    formats/bmp/ ...     one folder per decoder
+    formats/bmp/, qoi/   one folder per decoder
   plan/
     load_plan.*          make_plan(): mode + strategy + texture format, pure
     loader.*             wires source → sinks → renderer from a plan, owns the threads
@@ -472,4 +497,5 @@ window.set_renderer(session->renderer());                           // session o
 - **Integer precision:** U32/I32 data is converted to F32, so values above 2²⁴ lose precision. Irrelevant for display; exact values (e.g. a pixel inspector) must be read on the CPU side.
 - **Normal mode latency:** every pan, zoom or display change needs a new CPU frame. Stale-frame drawing hides it during interaction, but newly exposed borders stay empty until the frame arrives.
 - **GPU-decoded peak memory:** encoded, decoded and converted textures can coexist during the passes; `transient_bytes` accounts for it in the budget.
+- **Rows not loaded yet with RGB textures:** the texture is cleared to transparent, but an RGB texture's swizzle forces alpha to 1, so missing rows show black instead of the background color (`StreamUpload` and `GpuConvert` while loading, a truncated file afterwards).
 - **`GpuConvert` and 3 channels:** the convert pass renders into an FBO, so 3-channel results are stored as RGBA (RGB is not guaranteed renderable). Direct upload keeps true RGB textures.

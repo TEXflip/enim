@@ -3,6 +3,7 @@
 #include <glad/glad.h>
 #include <plog/Log.h>
 
+#include <core/wakeup.hpp>
 #include <io/detect.hpp>
 #include <render/fast_renderer.hpp>
 
@@ -40,7 +41,7 @@ std::expected<std::unique_ptr<ImageRenderer>, enim::Error> load(const Settings& 
     }
 
     PLOG_INFO << "Fast mode strategy: " << to_string(plan.fast);
-    return std::make_unique<FastRenderer>(std::move(source), plan);
+    return std::make_unique<FastRenderer>(std::move(source), plan, wake_main_thread);
 }
 
 } // namespace enim

@@ -26,8 +26,12 @@ add_subdirectory(third_party/glad)
 add_executable(enim
     src/main.cpp
     src/linalgebra.cpp
+    src/core/wakeup.cpp
     src/io/detect.cpp
     src/io/formats/bmp/bmp_source.cpp
+    src/io/formats/qoi/qoi_source.cpp
+    src/pipeline/pixel_converter.cpp
+    src/pipeline/texture_upload_sink.cpp
     src/plan/load_plan.cpp
     src/plan/loader.cpp
     src/view/display_params.cpp

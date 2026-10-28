@@ -1,6 +1,9 @@
 #include "fast_renderer.hpp"
 
+#include <algorithm>
+#include <array>
 #include <string>
+#include <vector>
 
 #include <plog/Log.h>
 
@@ -8,6 +11,10 @@ namespace {
 
 // destination texels blitted per update() while building mipmaps: ~16 MB written at RGBA8
 constexpr std::size_t kMipmapTexelsPerStep = std::size_t{4} << 20;
+
+// StreamUpload: converted bytes waiting in the queue (bounds the RAM ahead of the GPU), and uploaded per update()
+constexpr std::size_t kStreamQueueBytes = std::size_t{64} << 20;
+constexpr std::size_t kStreamUploadBytesPerStep = std::size_t{64} << 20;
 
 } // namespace
 
@@ -23,6 +30,8 @@ std::expected<void, enim::Error> FastRenderer::init() {
         return this->upload_direct();
     case FastStrategy::GpuConvert:
         return this->start_gpu_convert();
+    case FastStrategy::StreamUpload:
+        return this->start_stream_upload();
     default:
         return std::unexpected(enim::Error{enim::ErrorCode::ImageLoadError,
                                            std::string("Fast mode strategy not implemented yet: ") + to_string(this->plan.fast)});
@@ -42,14 +51,9 @@ std::expected<void, enim::Error> FastRenderer::upload_direct() {
     PLOG_INFO << "Image size (WxH): " << info.width << "x" << info.height << ", "
               << static_cast<int>(info.layout.channels) << " stored / " << static_cast<int>(this->plan.texture.channels) << " displayed channels";
 
-    Vec2i size{static_cast<std::int32_t>(info.width), static_cast<std::int32_t>(info.height)};
-    this->texture = Texture::create(this->plan.texture, size);
+    this->create_display_texture();
+    Vec2i size = this->texture.size;
     this->flip_y = info.layout.rows == RowOrder::BottomUp;
-    // storage and render target setup happen while the texture is empty: done later, on a texture holding the image,
-    // the driver relocates or re-lays out all of it, which stalls when mipmaps are enabled
-    this->texture.allocate();
-    this->texture.allocate_mip_levels();
-    this->prepare_mip_builder();
 
     auto start = std::chrono::steady_clock::now();
     glPixelStorei(GL_UNPACK_ALIGNMENT, params->alignment);
@@ -70,6 +74,92 @@ std::expected<void, enim::Error> FastRenderer::upload_direct() {
 
     this->apply_mipmaps();
     return {};
+}
+
+void FastRenderer::create_display_texture() {
+    const ImageInfo& info = this->source->info();
+    Vec2i size{static_cast<std::int32_t>(info.width), static_cast<std::int32_t>(info.height)};
+    this->texture = Texture::create(this->plan.texture, size);
+    // storage and render target setup happen while the texture is empty: done later, on a texture holding the image,
+    // the driver relocates or re-lays out all of it, which stalls when mipmaps are built
+    this->texture.allocate();
+    this->texture.allocate_mip_levels();
+    this->prepare_mip_builder();
+}
+
+std::expected<void, enim::Error> FastRenderer::start_stream_upload() {
+    const ImageInfo& info = this->source->info();
+
+    PLOG_INFO << "Image size (WxH): " << info.width << "x" << info.height << ", " << static_cast<int>(info.layout.channels)
+              << " stored / " << static_cast<int>(this->plan.texture.channels) << " texture channels, decoded on the CPU";
+
+    this->create_display_texture();
+    this->flip_y = false; // the sink writes top-down rows
+
+    // rows not decoded yet show the background
+    if (auto fbo = Framebuffer::create(this->texture); fbo) {
+        constexpr std::array<GLfloat, 4> transparent{0, 0, 0, 0};
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo->id);
+        glClearBufferfv(GL_COLOR, 0, transparent.data());
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    } else {
+        UploadParams params = texture_upload_params(this->plan.texture);
+        const std::size_t row_bytes = info.width * this->plan.texture.bytes_per_pixel();
+        const std::size_t rows_per_chunk = std::max<std::size_t>(1, kStreamQueueBytes / row_bytes);
+        std::vector<std::uint8_t> zeros(std::min(rows_per_chunk, info.height) * row_bytes);
+        glBindTexture(GL_TEXTURE_2D, this->texture.id);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, params.alignment);
+        for (std::size_t y = 0; y < info.height; y += rows_per_chunk)
+            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, static_cast<GLint>(y), this->texture.size.x,
+                            static_cast<GLsizei>(std::min(rows_per_chunk, info.height - y)), params.format, params.type, zeros.data());
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+    }
+
+    auto job = std::make_unique<StreamJob>(PixelConverter(info.layout, info.width, this->plan.texture, this->plan.display),
+                                           kStreamQueueBytes);
+    job->start = std::chrono::steady_clock::now();
+    job->thread = std::jthread([this, raw = job.get()](std::stop_token stop) {
+        raw->sink = std::make_unique<TextureUploadSink>(this->source->info(), raw->converter, raw->queue, this->wakeup, stop);
+        (void)this->source->decode(*raw->sink, stop); // the result reaches the queue through the sink's on_done
+    });
+    this->stream_job = std::move(job);
+    return {};
+}
+
+void FastRenderer::upload_stream_bands() {
+    StreamJob& job = *this->stream_job;
+    UploadParams params = texture_upload_params(this->plan.texture);
+
+    glBindTexture(GL_TEXTURE_2D, this->texture.id);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, params.alignment);
+    std::size_t uploaded_bytes = 0;
+    while (uploaded_bytes < kStreamUploadBytesPerStep) {
+        std::optional<UploadBand> band = job.queue.pop();
+        if (!band)
+            break;
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, static_cast<GLint>(band->first_row), this->texture.size.x,
+                        static_cast<GLsizei>(band->rows), params.format, params.type, band->pixels.data());
+        uploaded_bytes += band->pixels.size();
+        job.rows_uploaded += band->rows;
+    }
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
+
+    if (GLenum err = glGetError(); err != GL_NO_ERROR)
+        PLOG_ERROR << "GL error " << err << " while uploading decoded rows";
+
+    std::optional<std::expected<void, enim::Error>> result = job.queue.take_result();
+    if (!result)
+        return;
+
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - job.start);
+    if (*result)
+        PLOG_INFO << "Stream upload done in " << elapsed.count() << " ms";
+    else
+        PLOG_ERROR << "Decoding failed after " << job.rows_uploaded << " rows: " << result->error().message;
+
+    this->stream_job.reset(); // the decode thread has returned, so this joins immediately
+    // a partial image still gets its mipmaps: the missing rows stay transparent
+    this->apply_mipmaps();
 }
 
 std::expected<void, enim::Error> FastRenderer::start_gpu_convert() {
@@ -173,6 +263,8 @@ void FastRenderer::build_next_mip_step() {
 void FastRenderer::update(const ViewTransform& view) {
     if (this->convert_job)
         this->convert_next_band();
+    else if (this->stream_job)
+        this->upload_stream_bands();
     else if (this->mip_job)
         this->build_next_mip_step();
 }
@@ -186,7 +278,7 @@ bool FastRenderer::toggle_mipmaps() {
     this->mipmaps = !this->mipmaps;
     PLOG_INFO << "Mipmaps " << (this->mipmaps ? "enabled" : "disabled");
     // while converting, the texture is still incomplete: the setting is applied when the last band is done
-    if (!this->convert_job)
+    if (!this->convert_job && !this->stream_job)
         this->apply_mipmaps();
     return true;
 }

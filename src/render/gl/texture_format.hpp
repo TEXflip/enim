@@ -29,6 +29,9 @@ TextureFormat choose_texture_format(const PixelLayout& layout, const DisplayPara
 /// color-renderable in GL 3.3). The conversion maps the range to [0, 1] anyway, so UNORM loses nothing.
 TextureFormat renderable(const TextureFormat& format);
 
+/// @brief The same format with SNORM replaced by UNORM of the same depth, for conversions that map the range to [0, 1].
+TextureFormat unsigned_normalized(const TextureFormat& format);
+
 /// @brief What a conversion writes into each texel channel (R, G, B, A of the texture, before the swizzle).
 struct TexelChannels {
     std::array<std::int8_t, 4> source{-1, -1, -1, -1}; // source channel, -1 = constant
@@ -51,5 +54,8 @@ struct UploadParams {
 /// @return The upload parameters, or nullopt if the source needs a conversion.
 std::optional<UploadParams> direct_upload_params(const PixelLayout& layout, std::size_t width, const TextureFormat& tex,
                                                  const DisplayParams& display);
+
+/// @brief How to upload rows already in the texture's own layout (tightly packed, e.g. from the PixelConverter).
+UploadParams texture_upload_params(const TextureFormat& format);
 
 } // namespace enim

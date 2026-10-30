@@ -55,6 +55,7 @@ The format is detected from the file's signature, not its extension. Uncompresse
 |---|---|---|
 | BMP | 24-bit (BGR) and 32-bit (BGRX) uncompressed; 32-bit bitfields with 8-bit channel masks, with or without alpha (RGBA, BGRA, ARGB, ...); top-down and bottom-up rows | palette (1/4/8-bit), 16-bit, RLE and embedded JPEG/PNG compression |
 | QOI | RGB and RGBA, 8-bit | |
+| JPEG | 8-bit grayscale and color (YCbCr/RGB), baseline, progressive, arithmetic and lossless | CMYK/YCCK, 12/16-bit, EXIF orientation |
 
 ## Test images
 

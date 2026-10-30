@@ -45,7 +45,8 @@ set(JPEG_ARGS
     -DREQUIRE_SIMD=ON
 )
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|x86_64|x86|i[3-6]86)$")
-    find_program(NASM_EXECUTABLE NAMES nasm yasm)
+    # the Windows installers (and winget) don't add NASM to the PATH
+    find_program(NASM_EXECUTABLE NAMES nasm yasm HINTS "$ENV{LOCALAPPDATA}/bin/NASM" "$ENV{ProgramFiles}/NASM")
     if (NOT NASM_EXECUTABLE)
         message(FATAL_ERROR "NASM not found: it is needed to build libjpeg-turbo's SIMD code. Install it "
             "(winget install NASM.NASM, apt install nasm, brew install nasm) or set NASM_EXECUTABLE.")
@@ -85,6 +86,7 @@ add_executable(enim
     src/core/wakeup.cpp
     src/io/detect.cpp
     src/io/formats/bmp/bmp_source.cpp
+    src/io/formats/jpeg/jpeg_source.cpp
     src/io/formats/qoi/qoi_source.cpp
     src/pipeline/pixel_converter.cpp
     src/pipeline/texture_upload_sink.cpp
@@ -155,4 +157,4 @@ if (CMAKE_BUILD_TYPE STREQUAL "Release")
         COMMAND $<$<CONFIG:Release>:${CMAKE_STRIP}> $<$<CONFIG:Release>:$<TARGET_FILE:enim>>
         COMMENT "Stripping enim (Release)"
     )
-endif()
+endif()

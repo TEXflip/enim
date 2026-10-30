@@ -11,6 +11,7 @@ Every image shows the same pattern, so a wrong channel order, row order or strid
 - alpha (when present) grows left to right, so the left edge is transparent.
 """
 
+import io
 import struct
 import sys
 from pathlib import Path
@@ -113,6 +114,12 @@ def encode_qoi(pixels: np.ndarray) -> bytes:
     return bytes(out + bytes(7) + b"")
 
 
+def jpeg_bytes(pixels: np.ndarray, progressive: bool) -> bytes:
+    buffer = io.BytesIO()
+    Image.fromarray(pixels).save(buffer, format="JPEG", quality=90, progressive=progressive)
+    return buffer.getvalue()
+
+
 def main() -> None:
     args = sys.argv[1:]
     force = "--force" in args
@@ -159,6 +166,22 @@ def main() -> None:
         "qoi_rgb_large.qoi": lambda p: p.write_bytes(encode_qoi(photo_like(3000, 2000))),
         # cut in half: the decoder must report an error and keep the rows it decoded
         "qoi_rgb_truncated.qoi": lambda p: p.write_bytes((lambda q: q[: len(q) // 2])(encode_qoi(odd[..., :3]))),
+        # JPEG (libjpeg-turbo, StreamUpload): odd sizes are not a multiple of the MCU size
+        "jpeg_rgb_420_odd.jpg": lambda p: Image.fromarray(odd[..., :3]).save(p, quality=90, subsampling="4:2:0"),
+        "jpeg_rgb_444.jpg": lambda p: Image.fromarray(even[..., :3]).save(p, quality=90, subsampling="4:4:4"),
+        "jpeg_gray.jpg": lambda p: Image.fromarray(odd[..., :3]).convert("L").save(p, quality=90),
+        "jpeg_rgb_progressive.jpg": lambda p: Image.fromarray(odd[..., :3]).save(p, quality=90, progressive=True),
+        "jpeg_rgb_large.jpg": lambda p: Image.fromarray(photo_like(6000, 4000)).save(p, quality=90),
+        # cut in half: baseline keeps the rows decoded before the error, progressive shows the whole image with
+        # less detail; both report an error
+        "jpeg_rgb_truncated.jpg": lambda p: p.write_bytes(
+            (lambda q: q[: len(q) // 2])(jpeg_bytes(photo_like(3000, 2000), progressive=False))
+        ),
+        "jpeg_rgb_progressive_truncated.jpg": lambda p: p.write_bytes(
+            (lambda q: q[: len(q) // 2])(jpeg_bytes(photo_like(3000, 2000), progressive=True))
+        ),
+        # not supported yet: must fail in open() with a clear message
+        "jpeg_cmyk.jpg": lambda p: Image.fromarray(even[..., :3]).convert("CMYK").save(p, quality=90),
     }
 
     for name, write in cases.items():

@@ -27,7 +27,7 @@ The texture keeps the original bit depth whenever OpenGL has a filterable textur
 
 # Code architecture
 
-> Status: target design, partially built. Done: `PixelLayout`/`ImageInfo`, `ImageSource` + `RowSink` interfaces, `BmpSource` (24/32-bit, BI_RGB and byte-aligned bitfields, both row orders), `QoiSource` (CPU-decoded, streamed), `io/detect`, `DisplayParams`, `choose_texture_format` + direct upload rules, `make_plan`, `plan/loader`, `ImagePass`, and `FastRenderer` with the `DirectUpload`, `GpuConvert` and `StreamUpload` strategies (`RawBuffer`, `Framebuffer`, `ConvertPass` raw variant; swizzle; mipmaps built progressively by `MipmapBuilder` after loading). `StreamUpload` comes with `PixelConverter`, `UploadQueue`, `TextureUploadSink` and `core/wakeup`; the decode thread is owned by the renderer for now, not by a `Loader` session. Debug flags: `--force-gpu-convert` and `--force-stream-upload` send uploadable BMPs through `GpuConvert` / `StreamUpload`. Next: `GpuDecode` (with `ConvertPass::init_texture`), then normal mode. Normal mode currently falls back to fast mode when the image fits in a texture.
+> Status: target design, partially built. Done: `PixelLayout`/`ImageInfo`, `ImageSource` + `RowSink` interfaces, `BmpSource` (24/32-bit, BI_RGB and byte-aligned bitfields, both row orders), `QoiSource` (CPU-decoded, streamed), `JpegSource` (libjpeg-turbo, 8-bit gray and RGB, streamed), `io/detect`, `DisplayParams`, `choose_texture_format` + direct upload rules, `make_plan`, `plan/loader`, `ImagePass`, and `FastRenderer` with the `DirectUpload`, `GpuConvert` and `StreamUpload` strategies (`RawBuffer`, `Framebuffer`, `ConvertPass` raw variant; swizzle; mipmaps built progressively by `MipmapBuilder` after loading). `StreamUpload` comes with `PixelConverter`, `UploadQueue`, `TextureUploadSink` and `core/wakeup`; the decode thread is owned by the renderer for now, not by a `Loader` session. Debug flags: `--force-gpu-convert` and `--force-stream-upload` send uploadable BMPs through `GpuConvert` / `StreamUpload`. Next: `GpuDecode` (with `ConvertPass::init_texture`), then normal mode. Normal mode currently falls back to fast mode when the image fits in a texture.
 
 ## Pipeline
 
@@ -165,7 +165,7 @@ struct RawBuffer {                  // GL buffer + buffer texture view (GL_R32UI
 
 ### CPU conversion (`StreamUpload`)
 
-For formats only the CPU can decode (today QOI; later PNG, JPEG, ...). The image appears progressively, top to bottom:
+For formats only the CPU can decode (today QOI and JPEG; later PNG, ...). The image appears progressively, top to bottom:
 
 1. The display texture is created as for the other strategies (level 0 and mip storage allocated, render target set up while empty), then cleared to transparent so rows not decoded yet show the background.
 2. A **decode thread** (`std::jthread`) runs `ImageSource::decode()` into a `TextureUploadSink`. For each chunk of rows (64 for QOI) the sink converts them with the `PixelConverter` into the texture's layout, on that thread, and pushes the band to the `UploadQueue`, then wakes the main thread (`wake_main_thread()` → `RGFW_stopCheckEvents`). Bottom-up sources are written reversed, so the texture is always top-down.
@@ -366,17 +366,18 @@ Non-streamable formats still use `StreamUpload`: they emit a single chunk at the
 |---|---|---|---|
 | BMP | `DirectUpload` (`GpuConvert` for layouts GL can't read) | own (`BmpSource`) | done |
 | QOI | `StreamUpload` | own (`QoiSource`) | done |
-| JPEG | `StreamUpload` | libjpeg-turbo (`JpegSource`) | planned |
+| JPEG | `StreamUpload` | libjpeg-turbo (`JpegSource`) | done: 8-bit gray and color; not yet CMYK/YCCK, 12/16-bit |
 
 ### JPEG
 
 - **Strategy:** `StreamUpload`. JPEG can't use `GpuDecode`: its 8×8 blocks are independent only after entropy decoding, and the Huffman bitstream is sequential (a block's bits start where the previous one's end, and DC coefficients are delta-coded). Restart markers would allow independent segments, but many files have none. OpenGL has no hardware JPEG decode.
-- **Decoder:** libjpeg-turbo, through the libjpeg API (`jpeg_read_scanlines`), not TurboJPEG (which only decodes the whole image at once). SIMD Huffman, IDCT and color conversion; covers baseline, progressive, arithmetic, 12-bit and CMYK files. It is vendored in `third_party/`; the build must find NASM, otherwise the SIMD code is silently left out.
+- **Decoder:** libjpeg-turbo, through the libjpeg API (`jpeg_read_scanlines`), not TurboJPEG (which only decodes the whole image at once). SIMD Huffman, IDCT and color conversion; covers baseline, progressive, arithmetic, lossless, 12-bit and CMYK files. It is a git submodule in `third_party/libjpeg-turbo` (pinned to a release tag), built with `ExternalProject_Add` (it refuses `add_subdirectory`) in Release, and linked statically. Its x86 SIMD code is NASM assembly: the build requires NASM (`REQUIRE_SIMD`) instead of silently falling back to the slower C code.
 - **`JpegSource`:**
-  - `open()` reads the header: Gray, or RGB with `out_color_space = JCS_EXT_RGB`, U8, top-down.
+  - `open()` reads the header: Gray, or RGB with `out_color_space = JCS_EXT_RGB` (from YCbCr or RGB), U8, top-down. CMYK/YCCK (libjpeg can't convert them to RGB) and 12/16-bit images are rejected here with a message. The file is memory-mapped and read with `jpeg_mem_src`.
   - `caps()`: streamable; not raw-mappable, not GPU-decodable.
-  - `decode()` emits one band per MCU row (8 or 16 rows) and checks the `stop_token` between bands. Progressive files only produce final rows after the last scan, so they arrive as a single chunk at the end.
-  - Errors: libjpeg's `error_exit` is replaced by a handler that `longjmp`s back, so `decode()` returns `std::expected`. As with QOI, the rows decoded before the error are emitted first.
+  - `decode()` emits bands of 64 rows (a multiple of every MCU height) and checks the `stop_token` between bands. Progressive (multi-scan) files are read whole by `jpeg_start_decompress` before the first row comes out, then emitted the same way.
+  - Errors: libjpeg's `error_exit` is replaced by a handler that `longjmp`s back to a `setjmp` in `open()`/`decode()`, which return `std::expected`. Since a `longjmp` skips destructors, every C++ object of those functions is created before the `setjmp`. As with QOI, the complete rows of the failing band are emitted first.
+  - Truncated files: libjpeg only warns (`JWRN_JPEG_EOF`) and fills the missing data. For single-scan files the warning is made fatal, so the rows not decoded stay transparent. Multi-scan files have every block from the first scans, so they are shown whole with less detail and the error is reported after the last row. Other warnings (corrupt data) are logged once and decoding goes on.
 - **Later:**
   - EXIF orientation.
   - Normal mode: libjpeg-turbo's scaled decoding (`scale_num/scale_denom` = 1/2, 1/4, 1/8, a partial IDCT) as a fast preview or coarse pyramid level, and `jpeg_skip_scanlines` / `jpeg_crop_scanline`.

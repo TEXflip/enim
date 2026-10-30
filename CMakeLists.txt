@@ -23,6 +23,62 @@ endif()
 add_subdirectory(third_party/plog)
 add_subdirectory(third_party/glad)
 
+# libjpeg-turbo can't be added with add_subdirectory(): it is built as a separate project and linked statically.
+# Its x86 SIMD code is NASM assembly; without NASM it would silently fall back to the much slower C code, so the
+# build fails instead (REQUIRE_SIMD). Arm uses NEON intrinsics and needs no assembler.
+include(ExternalProject)
+
+if (NOT EXISTS ${CMAKE_SOURCE_DIR}/third_party/libjpeg-turbo/CMakeLists.txt)
+    message(FATAL_ERROR "third_party/libjpeg-turbo is empty: run git submodule update --init")
+endif()
+
+set(JPEG_ARGS
+    -DCMAKE_BUILD_TYPE=Release # optimized in Debug builds of enim too
+    -DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}
+    -DCMAKE_INSTALL_PREFIX=<INSTALL_DIR>
+    -DCMAKE_INSTALL_LIBDIR=lib
+    -DENABLE_SHARED=OFF
+    -DENABLE_STATIC=ON
+    -DWITH_TURBOJPEG=OFF # only the libjpeg API is used
+    -DWITH_TOOLS=OFF     # also disables the tests
+    -DWITH_ARITH_ENC=OFF
+    -DREQUIRE_SIMD=ON
+)
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "^(AMD64|x86_64|x86|i[3-6]86)$")
+    find_program(NASM_EXECUTABLE NAMES nasm yasm)
+    if (NOT NASM_EXECUTABLE)
+        message(FATAL_ERROR "NASM not found: it is needed to build libjpeg-turbo's SIMD code. Install it "
+            "(winget install NASM.NASM, apt install nasm, brew install nasm) or set NASM_EXECUTABLE.")
+    endif()
+    list(APPEND JPEG_ARGS -DCMAKE_ASM_NASM_COMPILER=${NASM_EXECUTABLE})
+endif()
+if (CMAKE_OSX_ARCHITECTURES)
+    list(APPEND JPEG_ARGS -DCMAKE_OSX_ARCHITECTURES=${CMAKE_OSX_ARCHITECTURES})
+endif()
+
+set(JPEG_PREFIX ${CMAKE_BINARY_DIR}/libjpeg-turbo)
+if (MSVC)
+    set(JPEG_LIB ${JPEG_PREFIX}/lib/jpeg-static.lib)
+else()
+    set(JPEG_LIB ${JPEG_PREFIX}/lib/libjpeg.a)
+endif()
+
+ExternalProject_Add(libjpeg-turbo-build
+    SOURCE_DIR ${CMAKE_SOURCE_DIR}/third_party/libjpeg-turbo
+    PREFIX ${JPEG_PREFIX}
+    INSTALL_DIR ${JPEG_PREFIX}
+    CMAKE_ARGS ${JPEG_ARGS}
+    BUILD_BYPRODUCTS ${JPEG_LIB} # needed by Ninja
+)
+
+file(MAKE_DIRECTORY ${JPEG_PREFIX}/include) # must exist at configure time
+add_library(jpeg STATIC IMPORTED)
+set_target_properties(jpeg PROPERTIES
+    IMPORTED_LOCATION ${JPEG_LIB}
+    INTERFACE_INCLUDE_DIRECTORIES ${JPEG_PREFIX}/include
+)
+add_dependencies(jpeg libjpeg-turbo-build)
+
 add_executable(enim
     src/main.cpp
     src/linalgebra.cpp
@@ -65,7 +121,7 @@ target_include_directories(enim PRIVATE
 )
 
 
-set(LIBS plog::plog glad)
+set(LIBS plog::plog glad jpeg)
 
 if (WIN32)
     set(LIBS ${LIBS} opengl32 gdi32 shell32 user32 advapi32 comctl32)

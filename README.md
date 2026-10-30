@@ -9,6 +9,9 @@ Built with CMake and Ninja. Needs a C++23 compiler with `#embed` (GCC 15+ or Cla
 ### Windows
 
 ```powershell
+git submodule update --init
+winget install NASM.NASM
+
 cmake --preset win-x64 -G Ninja
 cmake --build bin
 .\bin\enim.exe path\to\image.bmp
@@ -19,8 +22,9 @@ cmake --build bin
 1. Needs X11/OpenGL development packages and GCC 15+. On Debian/Ubuntu:
 
    ```sh
-   sudo apt install cmake ninja-build libglx-dev libx11-dev libxrandr-dev libxi-dev libxinerama-dev \
+   sudo apt install cmake ninja-build nasm libglx-dev libx11-dev libxrandr-dev libxi-dev libxinerama-dev \
        libxcursor-dev libxext-dev libgl1-mesa-dev
+   git submodule update --init
    ```
 
    The Linux presets use `gcc-16`/`g++-16`. With another version, configure without a preset, e.g.
@@ -36,6 +40,8 @@ cmake --build bin
 ### macOS
 
 ```sh
+brew install nasm   # Intel Macs only
+git submodule update --init
 CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++ cmake --preset macos-x64 -G Ninja
 cmake --build bin
 ./bin/enim path/to/image.bmp

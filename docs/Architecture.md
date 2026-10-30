@@ -360,6 +360,28 @@ struct FormatCaps {
 
 Non-streamable formats still use `StreamUpload`: they emit a single chunk at the end. Their temporary CPU buffer is bounded by the fast mode budget.
 
+## Formats
+
+| Format | Strategy | Decoder | Status |
+|---|---|---|---|
+| BMP | `DirectUpload` (`GpuConvert` for layouts GL can't read) | own (`BmpSource`) | done |
+| QOI | `StreamUpload` | own (`QoiSource`) | done |
+| JPEG | `StreamUpload` | libjpeg-turbo (`JpegSource`) | planned |
+
+### JPEG
+
+- **Strategy:** `StreamUpload`. JPEG can't use `GpuDecode`: its 8×8 blocks are independent only after entropy decoding, and the Huffman bitstream is sequential (a block's bits start where the previous one's end, and DC coefficients are delta-coded). Restart markers would allow independent segments, but many files have none. OpenGL has no hardware JPEG decode.
+- **Decoder:** libjpeg-turbo, through the libjpeg API (`jpeg_read_scanlines`), not TurboJPEG (which only decodes the whole image at once). SIMD Huffman, IDCT and color conversion; covers baseline, progressive, arithmetic, 12-bit and CMYK files. It is vendored in `third_party/`; the build must find NASM, otherwise the SIMD code is silently left out.
+- **`JpegSource`:**
+  - `open()` reads the header: Gray, or RGB with `out_color_space = JCS_EXT_RGB`, U8, top-down.
+  - `caps()`: streamable; not raw-mappable, not GPU-decodable.
+  - `decode()` emits one band per MCU row (8 or 16 rows) and checks the `stop_token` between bands. Progressive files only produce final rows after the last scan, so they arrive as a single chunk at the end.
+  - Errors: libjpeg's `error_exit` is replaced by a handler that `longjmp`s back, so `decode()` returns `std::expected`. As with QOI, the rows decoded before the error are emitted first.
+- **Later:**
+  - EXIF orientation.
+  - Normal mode: libjpeg-turbo's scaled decoding (`scale_num/scale_denom` = 1/2, 1/4, 1/8, a partial IDCT) as a fast preview or coarse pyramid level, and `jpeg_skip_scanlines` / `jpeg_crop_scanline`.
+
+
 ## Producer: `ImageSource`
 
 Replaces the current `FileReader`. One decode entry point serves every strategy:

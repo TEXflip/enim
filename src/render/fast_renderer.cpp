@@ -1,9 +1,7 @@
 #include "fast_renderer.hpp"
 
 #include <algorithm>
-#include <array>
 #include <string>
-#include <vector>
 
 #include <plog/Log.h>
 
@@ -96,24 +94,7 @@ std::expected<void, enim::Error> FastRenderer::start_stream_upload() {
     this->create_display_texture();
     this->flip_y = false; // the sink writes top-down rows
 
-    // rows not decoded yet show the background
-    if (auto fbo = Framebuffer::create(this->texture); fbo) {
-        constexpr std::array<GLfloat, 4> transparent{0, 0, 0, 0};
-        glBindFramebuffer(GL_FRAMEBUFFER, fbo->id);
-        glClearBufferfv(GL_COLOR, 0, transparent.data());
-        glBindFramebuffer(GL_FRAMEBUFFER, 0);
-    } else {
-        UploadParams params = texture_upload_params(this->plan.texture);
-        const std::size_t row_bytes = info.width * this->plan.texture.bytes_per_pixel();
-        const std::size_t rows_per_chunk = std::max<std::size_t>(1, kStreamQueueBytes / row_bytes);
-        std::vector<std::uint8_t> zeros(std::min(rows_per_chunk, info.height) * row_bytes);
-        glBindTexture(GL_TEXTURE_2D, this->texture.id);
-        glPixelStorei(GL_UNPACK_ALIGNMENT, params.alignment);
-        for (std::size_t y = 0; y < info.height; y += rows_per_chunk)
-            glTexSubImage2D(GL_TEXTURE_2D, 0, 0, static_cast<GLint>(y), this->texture.size.x,
-                            static_cast<GLsizei>(std::min(rows_per_chunk, info.height - y)), params.format, params.type, zeros.data());
-        glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
-    }
+    this->texture.clear_transparent(); // rows not decoded yet show the background
 
     auto job = std::make_unique<StreamJob>(PixelConverter(info.layout, info.width, this->plan.texture, this->plan.display),
                                            kStreamQueueBytes);

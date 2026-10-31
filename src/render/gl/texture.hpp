@@ -47,6 +47,9 @@ struct Texture {
     /// Levels being built are never sampled. A disabled chain is kept, so enabling it again is instant.
     void set_mipmaps(bool enabled);
 
+    /// @brief Clears level 0 to transparent black: with a framebuffer if the format is renderable, else by uploading zeros.
+    void clear_transparent();
+
     /// @brief Generates the whole chain at once with glGenerateMipmap (blocks; fallback for non-renderable formats).
     void generate_mip_chain();
 };

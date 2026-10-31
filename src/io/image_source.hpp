@@ -27,6 +27,9 @@ struct ImageSource {
     virtual const ImageInfo& info() const = 0;
     virtual FormatCaps caps() const = 0;
 
+    /// @brief The file's header (everything before the pixel data). Part of the normal mode cache key.
+    virtual std::span<const std::uint8_t> header_bytes() const = 0;
+
     /// @brief The pixel data as stored in the file (raw_mappable only), info().height rows of info().layout.stride bytes.
     virtual std::span<const std::uint8_t> mapped_pixels() { return {}; }
     /// @brief The encoded pixel data (gpu_decodable only).

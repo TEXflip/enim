@@ -29,6 +29,10 @@ TextureFormat choose_texture_format(const PixelLayout& layout, const DisplayPara
 /// color-renderable in GL 3.3). The conversion maps the range to [0, 1] anyway, so UNORM loses nothing.
 TextureFormat renderable(const TextureFormat& format);
 
+/// @brief The same format with an alpha channel: mono becomes (gray, alpha), RGB becomes RGBA. Normal mode frames have one,
+/// so that the parts not sampled yet are transparent.
+TextureFormat with_alpha(const TextureFormat& format);
+
 /// @brief The same format with SNORM replaced by UNORM of the same depth, for conversions that map the range to [0, 1].
 TextureFormat unsigned_normalized(const TextureFormat& format);
 

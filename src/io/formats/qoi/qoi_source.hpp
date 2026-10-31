@@ -11,6 +11,7 @@ struct QoiSource : public ImageSource {
     std::expected<void, enim::Error> open(const std::filesystem::path& path) override;
     const ImageInfo& info() const override { return this->image_info; }
     FormatCaps caps() const override { return {.raw_mappable = false, .gpu_decodable = false, .streamable = true}; }
+    std::span<const std::uint8_t> header_bytes() const override;
     std::expected<void, enim::Error> decode(RowSink& sink, std::stop_token stop) override;
 
   private:

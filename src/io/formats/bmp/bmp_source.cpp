@@ -106,6 +106,13 @@ std::expected<void, enim::Error> BmpSource::read_channel_roles() {
     return {};
 }
 
+std::span<const std::uint8_t> BmpSource::header_bytes() const {
+    if (!this->map.is_mapped())
+        return {};
+    // file and DIB headers, masks and palette: everything up to the pixel array (checked against the size in open())
+    return {reinterpret_cast<const std::uint8_t*>(this->map.data()), this->header.file_offset_to_pixel_array};
+}
+
 std::span<const std::uint8_t> BmpSource::mapped_pixels() {
     if (!this->map.is_mapped())
         return {};

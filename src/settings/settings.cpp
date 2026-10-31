@@ -60,6 +60,8 @@ void print_help(const char* program_name) {
     std::printf("  --force-normal-mode    Enable normal mode\n");
     std::printf("  --fast-max-mem <size>  GPU memory budget for fast mode, e.g. 512M, 2G (default 1G,\n");
     std::printf("                         or the ENIM_FAST_MAX_MEM environment variable)\n");
+    std::printf("  --cache-dir <dir>      Where normal mode keeps the image pyramids (default: the user's cache directory,\n");
+    std::printf("                         or the ENIM_CACHE_DIR environment variable)\n");
     std::printf("  --force-gpu-convert    Debug: convert uncompressed images on the GPU even if they can be uploaded as is\n");
     std::printf("  --force-stream-upload  Debug: decode and convert uncompressed images on the CPU\n");
 }
@@ -92,6 +94,12 @@ Settings parse_args(int argc, char* argv[]) {
                 std::exit(1);
             }
             set_fast_mode_max_bytes(settings, argv[++i], "--fast-max-mem");
+        } else if (std::strcmp(argv[i], "--cache-dir") == 0) {
+            if (i + 1 >= argc) {
+                std::fprintf(stderr, "--cache-dir needs a value\n");
+                std::exit(1);
+            }
+            settings.cache_dir = argv[++i];
         } else {
             settings.image_path = argv[i];
         }

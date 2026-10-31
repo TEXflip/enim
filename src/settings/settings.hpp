@@ -17,6 +17,7 @@ struct Settings {
     bool force_gpu_convert = false; // debug: convert on the GPU even when the layout could be uploaded directly
     bool force_stream_upload = false; // debug: decode and convert uncompressed images on the CPU (StreamUpload)
     std::size_t fast_mode_max_bytes = kDefaultFastModeMaxBytes; // --fast-max-mem, then ENIM_FAST_MAX_MEM
+    std::string cache_dir; // --cache-dir; empty: ENIM_CACHE_DIR, then the platform's cache directory (core/cache_dir)
     std::string image_path;
 };
 

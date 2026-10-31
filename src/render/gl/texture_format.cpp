@@ -102,6 +102,19 @@ TextureFormat unsigned_normalized(const TextureFormat& format) {
     return out;
 }
 
+TextureFormat with_alpha(const TextureFormat& format) {
+    TextureFormat out = format;
+    if (out.channels == 1) {
+        out.channels = 2;
+        out.swizzle = {GL_RED, GL_RED, GL_RED, GL_GREEN};
+    } else if (out.channels == 3) {
+        out.channels = 4;
+        out.swizzle = {GL_RED, GL_GREEN, GL_BLUE, GL_ALPHA};
+    }
+    out.internal_format = kInternalFormats[format_row(out.sample)][out.channels - 1];
+    return out;
+}
+
 UploadParams texture_upload_params(const TextureFormat& format) {
     constexpr GLenum formats[] = {GL_RED, GL_RG, GL_RGB, GL_RGBA};
     UploadParams params;

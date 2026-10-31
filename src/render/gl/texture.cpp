@@ -1,7 +1,11 @@
 #include "texture.hpp"
 
 #include <algorithm>
+#include <array>
 #include <bit>
+#include <vector>
+
+#include <render/gl/framebuffer.hpp>
 
 namespace enim {
 
@@ -61,6 +65,28 @@ void Texture::set_mipmaps(bool enabled) {
     glBindTexture(GL_TEXTURE_2D, this->id);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, mipmapped ? this->mip_levels_ready - 1 : 0);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, mipmapped ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
+}
+
+void Texture::clear_transparent() {
+    if (auto fbo = Framebuffer::create(*this); fbo) {
+        constexpr std::array<GLfloat, 4> transparent{0, 0, 0, 0};
+        glBindFramebuffer(GL_FRAMEBUFFER, fbo->id);
+        glClearBufferfv(GL_COLOR, 0, transparent.data());
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return;
+    }
+    constexpr std::size_t kChunkBytes = std::size_t{64} << 20;
+    UploadParams params = texture_upload_params(this->format);
+    const std::size_t row_bytes = static_cast<std::size_t>(this->size.x) * this->format.bytes_per_pixel();
+    const std::size_t height = static_cast<std::size_t>(this->size.y);
+    const std::size_t rows_per_chunk = std::max<std::size_t>(1, kChunkBytes / row_bytes);
+    std::vector<std::uint8_t> zeros(std::min(rows_per_chunk, height) * row_bytes);
+    glBindTexture(GL_TEXTURE_2D, this->id);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, params.alignment);
+    for (std::size_t y = 0; y < height; y += rows_per_chunk)
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, static_cast<GLint>(y), this->size.x,
+                        static_cast<GLsizei>(std::min(rows_per_chunk, height - y)), params.format, params.type, zeros.data());
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 }
 
 void Texture::generate_mip_chain() {

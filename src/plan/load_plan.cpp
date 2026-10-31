@@ -60,8 +60,9 @@ LoadPlan make_plan(const ImageInfo& info, const FormatCaps& caps, const GpuLimit
 
     plan.mode = fast ? Mode::Fast : Mode::Normal;
     plan.level0 = caps.raw_mappable ? Level0Source::SourceMmap : Level0Source::DecodeToDisk;
-    // normal mode frames are produced by the CPU converter, so they can be RGB
-    plan.texture = fast ? tex : choose_texture_format(info.layout, plan.display);
+    // normal mode frames are produced by the CPU converter (range mapped to [0, 1], so UNORM), with an alpha channel
+    // so that texels not sampled yet show the previous frame
+    plan.texture = fast ? tex : with_alpha(unsigned_normalized(choose_texture_format(info.layout, plan.display)));
 
     return plan;
 }

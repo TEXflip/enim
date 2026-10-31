@@ -19,9 +19,14 @@ struct UploadBand {
     std::size_t first_row = 0; // texture row (top-down)
     std::size_t rows = 0;
     std::vector<std::uint8_t> pixels; // tightly packed rows
+    // normal mode frames
+    std::uint64_t generation = 0; // the FrameRequest the band belongs to
+    bool end_of_frame = false;    // no pixels: every band of the frame was queued
+    bool complete = true;         // with end_of_frame: no fallback was used, the frame doesn't need refining
 };
 
-/// @brief Hands converted bands from worker threads to the main thread (the only one making GL calls).
+/// @brief Hands converted bands (texture rows in fast mode, frame bands in normal mode) from worker threads to the main
+/// thread (the only one making GL calls).
 /// Bounded: push() waits while the queued bytes exceed the capacity, so a fast decoder can't fill the RAM.
 struct UploadQueue {
     explicit UploadQueue(std::size_t capacity_bytes) : capacity_bytes(capacity_bytes) {}

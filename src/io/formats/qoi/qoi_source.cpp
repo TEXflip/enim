@@ -72,6 +72,12 @@ std::expected<void, enim::Error> QoiSource::open(const std::filesystem::path& pa
     return {};
 }
 
+std::span<const std::uint8_t> QoiSource::header_bytes() const {
+    if (!this->map.is_mapped())
+        return {};
+    return {reinterpret_cast<const std::uint8_t*>(this->map.data()), kHeaderSize};
+}
+
 std::expected<void, enim::Error> QoiSource::decode(RowSink& sink, std::stop_token stop) {
     const auto* p = reinterpret_cast<const std::uint8_t*>(this->map.data()) + kHeaderSize;
     // every op is at most 5 bytes: checking for 5 bytes before each op keeps reads inside the file

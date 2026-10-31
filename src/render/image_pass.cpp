@@ -51,6 +51,11 @@ std::expected<void, enim::Error> ImagePass::init() {
 }
 
 void ImagePass::draw(const Texture& texture, const ViewTransform& view, bool flip_y) const {
+    this->draw(texture, view, flip_y, Vec2f{0.0f, 0.0f}, view.image_size);
+}
+
+void ImagePass::draw(const Texture& texture, const ViewTransform& view, bool flip_y, Vec2f region_min, Vec2f region_max,
+                     bool premultiplied) const {
     glUseProgram(this->program);
 
     glActiveTexture(GL_TEXTURE0);
@@ -63,9 +68,11 @@ void ImagePass::draw(const Texture& texture, const ViewTransform& view, bool fli
     glUniform2f(glGetUniformLocation(this->program, "offset"), offset.x, offset.y);
     glUniform2f(glGetUniformLocation(this->program, "scale"), scale.x, scale.y);
     glUniform1i(glGetUniformLocation(this->program, "flip_y"), flip_y ? 1 : 0);
+    glUniform2f(glGetUniformLocation(this->program, "region_min"), region_min.x / view.image_size.x, region_min.y / view.image_size.y);
+    glUniform2f(glGetUniformLocation(this->program, "region_max"), region_max.x / view.image_size.x, region_max.y / view.image_size.y);
 
     glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glBlendFunc(premultiplied ? GL_ONE : GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     glBindVertexArray(this->vao);
     glDrawArrays(GL_TRIANGLES, 0, 6);

@@ -115,6 +115,8 @@ std::expected<void, enim::Error> JpegSource::open(const std::filesystem::path& p
     if (const char* unsupported = start(d, this->map))
         return std::unexpected(jpeg_error(unsupported));
 
+    // jpeg_read_header() stops right after the first SOS segment
+    this->header_size = static_cast<std::size_t>(d.cinfo.src->next_input_byte - reinterpret_cast<const JOCTET*>(this->map.data()));
     this->image_info.width = d.cinfo.output_width;
     this->image_info.height = d.cinfo.output_height;
     PixelLayout& layout = this->image_info.layout;
@@ -131,6 +133,12 @@ std::expected<void, enim::Error> JpegSource::open(const std::filesystem::path& p
     layout.rows = RowOrder::TopDown;
     layout.big_endian = false;
     return {};
+}
+
+std::span<const std::uint8_t> JpegSource::header_bytes() const {
+    if (!this->map.is_mapped())
+        return {};
+    return {reinterpret_cast<const std::uint8_t*>(this->map.data()), this->header_size};
 }
 
 std::expected<void, enim::Error> JpegSource::decode(RowSink& sink, std::stop_token stop) {

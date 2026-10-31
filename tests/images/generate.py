@@ -1,9 +1,10 @@
 #!/usr/bin/python3
 """Generates test images covering the pixel layouts enim must handle.
 
-Usage: uv run tests/images/generate.py [--force] [output_dir]   (default: tests/images/out)
+Usage: uv run tests/images/generate.py [--force] [--large] [output_dir]   (default: tests/images/out)
 
 Existing files are kept unless --force is given (the pure Python QOI encoder is slow on large images).
+--large also writes images too large for the default fast mode budget (~1.2 GB on disk), which load in normal mode.
 
 Every image shows the same pattern, so a wrong channel order, row order or stride is easy to spot:
 - red grows left to right, green grows top to bottom;
@@ -123,7 +124,8 @@ def jpeg_bytes(pixels: np.ndarray, progressive: bool) -> bytes:
 def main() -> None:
     args = sys.argv[1:]
     force = "--force" in args
-    args = [a for a in args if a != "--force"]
+    large = "--large" in args
+    args = [a for a in args if a not in ("--force", "--large")]
     out = Path(args[0]) if args else Path(__file__).parent / "out"
     out.mkdir(parents=True, exist_ok=True)
 
@@ -183,6 +185,15 @@ def main() -> None:
         # not supported yet: must fail in open() with a clear message
         "jpeg_cmyk.jpg": lambda p: Image.fromarray(even[..., :3]).convert("CMYK").save(p, quality=90),
     }
+
+    # --large: fast mode would need ~1.5 GiB, over the default budget, so they load in normal mode (odd sizes: pyramid edges)
+    if large:
+        cases |= {
+            # ~1.1 GB, bottom-up: the pyramid builder gets the rows bottom row first
+            "bmp_bgr24_huge.bmp": lambda p: write_bmp(p, bgr(pattern(24001, 16001)[..., :3])),
+            # decoded to disk (DecodeToDisk)
+            "jpeg_rgb_huge.jpg": lambda p: Image.fromarray(pattern(24001, 16001)[..., :3]).save(p, quality=90),
+        }
 
     for name, write in cases.items():
         path = out / name

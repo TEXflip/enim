@@ -83,6 +83,9 @@ add_dependencies(jpeg libjpeg-turbo-build)
 add_executable(enim
     src/main.cpp
     src/linalgebra.cpp
+    src/core/cache_dir.cpp
+    src/core/md5.cpp
+    src/core/thread_pool.cpp
     src/core/wakeup.cpp
     src/io/detect.cpp
     src/io/formats/bmp/bmp_source.cpp
@@ -92,6 +95,10 @@ add_executable(enim
     src/pipeline/texture_upload_sink.cpp
     src/plan/load_plan.cpp
     src/plan/loader.cpp
+    src/pyramid/pyramid_builder.cpp
+    src/pyramid/pyramid_store.cpp
+    src/pyramid/tile_selection.cpp
+    src/pyramid/view_sampler.cpp
     src/view/display_params.cpp
     src/window/window.cpp
     src/window/events.cpp
@@ -106,6 +113,7 @@ add_executable(enim
     src/render/gpu_passes/convert_pass.cpp
     src/render/image_pass.cpp
     src/render/fast_renderer.cpp
+    src/render/tiled_renderer.cpp
     src/settings/settings.cpp
 )
     

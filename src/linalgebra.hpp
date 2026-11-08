@@ -2,7 +2,15 @@
 #include <concepts>
 #include <cstdint>
 #include <type_traits>
-#include <stdfloat>
+
+#if __has_include(<stdfloat>)
+#  include <stdfloat>
+#else
+namespace std {
+    using float32_t = float;
+    using float64_t = double;
+}
+#endif
 
 #ifdef __STDCPP_FLOAT32_T__
 using Scalar = std::float32_t;

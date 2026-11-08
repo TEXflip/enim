@@ -7,6 +7,13 @@
 
 #include <settings/settings.hpp>
 
+#if defined(__APPLE__) && defined(__clang__) && defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) && __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ < 260000
+#  include <fast_float/fast_float.h>
+#  define ENIM_FROM_CHARS fast_float::from_chars
+#else
+#  define ENIM_FROM_CHARS std::from_chars
+#endif
+
 namespace {
 
 void set_fast_mode_max_bytes(enim::Settings& settings, const char* value, const char* origin) {
@@ -24,7 +31,7 @@ namespace enim {
 
 std::optional<std::size_t> parse_size(std::string_view text) {
     double value = 0;
-    auto [end, ec] = std::from_chars(text.data(), text.data() + text.size(), value);
+    auto [end, ec] = ENIM_FROM_CHARS(text.data(), text.data() + text.size(), value);
     if (ec != std::errc{} || value < 0)
         return std::nullopt;
 

@@ -16,7 +16,4 @@ std::filesystem::path cache_root(const Settings& settings);
 /// Hashing the whole file would take seconds for the images normal mode is for.
 std::string cache_key(const std::filesystem::path& image_path, std::span<const std::uint8_t> header_bytes);
 
-/// @brief <root>/<key>.pyr: the pyramid file of an image, levels 0..N.
-std::filesystem::path pyramid_path(const std::filesystem::path& root, const std::string& key);
-
 } // namespace enim

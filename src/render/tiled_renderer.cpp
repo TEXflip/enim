@@ -49,7 +49,8 @@ std::expected<void, enim::Error> TiledRenderer::init() {
         return pass_result;
 
     const ImageInfo& info = this->source->info();
-    std::filesystem::path path = pyramid_path(this->cache_dir, cache_key(this->image_path, this->source->header_bytes()));
+    std::string key = cache_key(this->image_path, this->source->header_bytes());
+    std::filesystem::path path = this->cache_dir / (key + ".pyr");
     auto store_result = PyramidStore::open_or_create(path, info);
     if (!store_result)
         return std::unexpected(store_result.error());

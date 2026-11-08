@@ -44,8 +44,4 @@ std::string cache_key(const std::filesystem::path& image_path, std::span<const s
     return Md5::hex(md5.finish());
 }
 
-std::filesystem::path pyramid_path(const std::filesystem::path& root, const std::string& key) {
-    return root / (key + ".pyr");
-}
-
 } // namespace enim

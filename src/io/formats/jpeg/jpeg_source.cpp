@@ -160,6 +160,7 @@ std::expected<void, enim::Error> JpegSource::decode(RowSink& sink, std::stop_tok
     volatile std::size_t y0 = 0;
     volatile std::size_t rows_done = 0;
 
+    // jpeg-turbo error handling needs setjmp/longjmp to catch errors
     if (setjmp(d.err.jump)) {
         // keep the complete rows of this chunk
         if (rows_done > 0)

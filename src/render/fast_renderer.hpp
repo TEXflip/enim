@@ -52,7 +52,7 @@ struct FastRenderer : public ImageRenderer {
         StreamJob(const PixelConverter& converter, std::size_t queue_bytes) : converter(converter), queue(queue_bytes) {}
 
         PixelConverter converter;
-        UploadQueue queue;
+        BandQueue queue;
         std::unique_ptr<TextureUploadSink> sink;
         std::size_t rows_uploaded = 0;
         std::chrono::steady_clock::time_point start;

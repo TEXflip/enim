@@ -1,11 +1,38 @@
 # Architecture
 
+- [Code architecture](#code-architecture)
+  - [Pipeline](#pipeline)
+  - [Pixel layout (source side)](#pixel-layout-source-side)
+  - [Display texture format](#display-texture-format)
+    - [Direct upload (no conversion)](#direct-upload-no-conversion)
+  - [Fast mode](#fast-mode)
+    - [Strategies](#strategies)
+    - [GPU conversion of raw bytes (`GpuConvert`)](#gpu-conversion-of-raw-bytes-gpuconvert)
+    - [CPU conversion (`StreamUpload`)](#cpu-conversion-streamupload)
+    - [GPU-decoded formats](#gpu-decoded-formats)
+    - [Mipmaps](#mipmaps)
+  - [Normal mode](#normal-mode)
+    - [Pyramid file](#pyramid-file)
+    - [Building](#building)
+    - [Tiles](#tiles)
+    - [`TiledRenderer`](#tiledrenderer)
+  - [Image shader](#image-shader)
+  - [Load plan](#load-plan)
+  - [Formats](#formats)
+    - [JPEG](#jpeg)
+  - [Producer: `ImageSource`](#producer-imagesource)
+  - [Destinations: `RowSink`s](#destinations-rowsinks)
+  - [Threads](#threads)
+  - [Coordinates](#coordinates)
+  - [Directory layout](#directory-layout)
+  - [Known limitations](#known-limitations)
+
 The objective of the project is to read and show an image as fast as possible regardless of its format and size.
 
 Format and size are the 2 variables determining how to read and render the image efficiently.
 The size determines if the image is read in fast mode or normal mode:
 - Fast mode is used for smaller images: the image must fit in a single OpenGL texture (`GL_MAX_TEXTURE_SIZE`) and must not exceed the fast mode memory budget (parameter settable in arguments or environment variable). The decoded image is copied directly into the GPU memory (if possible).
-- Normal mode is used for larger images. The image pyramid is computed on the disk (and kept in a cache); the CPU samples the current view from it and only a frame about the size of the screen is uploaded into the GPU memory on runtime.
+- Normal mode is used for larger images. The image pyramid is computed on the disk (and kept in a cache); the CPU samples the 256×256 pyramid tiles around the current view from it, and only the tiles the GPU doesn't hold yet are uploaded into a ring texture about the size of the screen.
 
 After determining which mode to use, the next step is to choose the strategy on how to read the image efficiently based on its format:
 - in Fast mode:
@@ -21,13 +48,13 @@ After determining which mode to use, the next step is to choose the strategy on 
 
 In both modes the final fragment shader only samples a texture, so rendering gets hardware filtering (and mipmaps in fast mode). The texture is display-ready: channel selection and bit depth conversion are done once, before rendering:
 - in Fast mode, after decoding: by a conversion fragment shader (FBO to FBO) for GPU-decoded formats, or by the CPU for formats decoded on the CPU. Uncompressed images whose layout OpenGL can upload directly (`glTexImage2D`/`glTexSubImage2D`) need no conversion at all; the other uncompressed images are uploaded raw into a buffer texture and converted by a fragment shader into an FBO, whose texture is then used for rendering.
-- in Normal mode, by the CPU view sampler while it produces the frame.
+- in Normal mode, by the CPU view sampler while it produces the tiles.
 
 The texture keeps the original bit depth whenever OpenGL has a filterable texture format for it (8 and 16 bit integer, 16 and 32 bit float), and only the channels that are displayed (MONO, MONO+ALPHA, RGB or RGBA).
 
 # Code architecture
 
-> Status: target design, partially built. Done: `PixelLayout`/`ImageInfo`, `ImageSource` + `RowSink` interfaces, `BmpSource` (24/32-bit, BI_RGB and byte-aligned bitfields, both row orders), `QoiSource` (CPU-decoded, streamed), `JpegSource` (libjpeg-turbo, 8-bit gray and RGB, streamed), `io/detect`, `DisplayParams`, `choose_texture_format` + direct upload rules, `make_plan`, `plan/loader`, `ImagePass`, and `FastRenderer` with the `DirectUpload`, `GpuConvert` and `StreamUpload` strategies (`RawBuffer`, `Framebuffer`, `ConvertPass` raw variant; swizzle; mipmaps built progressively by `MipmapBuilder` after loading). `StreamUpload` comes with `PixelConverter`, `UploadQueue`, `TextureUploadSink` and `core/wakeup`; the decode thread is owned by the renderer for now, not by a `Loader` session. Normal mode is done: `PyramidStore` (one cached `.pyr` file per image, levels 0…N as tiles), `PyramidBuilderSink`, `tile_selection`, `ViewSampler` (with the preview fallback) and `TiledRenderer` (stale frames), for both uncompressed and CPU-decoded sources. Debug flags: `--force-gpu-convert` and `--force-stream-upload` send uploadable BMPs through `GpuConvert` / `StreamUpload`, `--force-normal-mode` sends any image through normal mode. Next: `GpuDecode` (with `ConvertPass::init_texture`).
+> Status: target design, partially built. Done: `PixelLayout`/`ImageInfo`, `ImageSource` + `RowSink` interfaces, `BmpSource` (24/32-bit, BI_RGB and byte-aligned bitfields, both row orders), `QoiSource` (CPU-decoded, streamed), `JpegSource` (libjpeg-turbo, 8-bit gray and RGB, streamed), `io/detect`, `DisplayParams`, `choose_texture_format` + direct upload rules, `make_plan`, `plan/loader`, `ImagePass`, and `FastRenderer` with the `DirectUpload`, `GpuConvert` and `StreamUpload` strategies (`RawBuffer`, `Framebuffer`, `ConvertPass` raw variant; swizzle; mipmaps built progressively by `MipmapBuilder` after loading). `StreamUpload` comes with `PixelConverter`, `UploadQueue`, `TextureUploadSink` and `core/wakeup`; the decode thread is owned by the renderer for now, not by a `Loader` session. Normal mode is done: `PyramidStore` (one cached `.pyr` file per image, levels 0…N as tiles), `PyramidBuilderSink`, `tile_selection`, `ViewSampler` (per-tile, with the preview fallback) and `TiledRenderer` (tile ring, stale ring), for both uncompressed and CPU-decoded sources. Debug flags: `--force-gpu-convert` and `--force-stream-upload` send uploadable BMPs through `GpuConvert` / `StreamUpload`, `--force-normal-mode` sends any image through normal mode. Next: `GpuDecode` (with `ConvertPass::init_texture`).
 
 ## Pipeline
 
@@ -41,8 +68,8 @@ The texture keeps the original bit depth whenever OpenGL has a filterable textur
 └─────────────────────────────────────────────────────────────────────────────┘
 
  NORMAL MODE                                            (per view)                    (every frame)
- pyramid (.pyr mmap) ── ViewSampler: level select, copy level px,
-                        channel select, depth convert ── glTexSubImage2D (bands) ──► frame texture ──► image shader
+ pyramid (.pyr mmap) ── ViewSampler: missing tiles only, copy level px,
+                        channel select, depth convert ── glTexSubImage2D (tiles) ──► tile ring texture ──► image shader
 ```
 
 - The **display texture** is the only thing the image shader reads. Its format comes from `choose_texture_format()` (below).
@@ -188,13 +215,15 @@ struct PixelConverter {
 
 // pipeline/upload_queue.hpp
 struct UploadBand { std::size_t first_row, rows; std::vector<std::uint8_t> pixels; };
+template <UploadItem Item>                             // any type with a `pixels` buffer (its size is counted)
 struct UploadQueue {                                   // bounded MPSC queue, main thread pops
-    bool push(UploadBand band, std::stop_token stop);  // waits for room; false if stopped
-    std::optional<UploadBand> pop();
+    bool push(Item item, std::stop_token stop);        // waits for room; false if stopped
+    std::optional<Item> pop();
     void finish(std::expected<void, Error> result);    // end of stream
-    bool pending() const;                              // bands to upload, or a result not taken yet
+    bool pending() const;                              // items to upload, or a result not taken yet
     std::optional<std::expected<void, Error>> take_result();
 };
+using BandQueue = UploadQueue<UploadBand>;             // fast mode; normal mode uses UploadQueue<UploadTile>
 ```
 
 - **`PixelConverter`:** the U8 source with the default range (every 8-bit format) is a channel shuffle. Everything else goes through a general per-sample path: read (any `SampleType`, byte swap), map `range` to [0, 1], write U8/U16 (clamped), F16 (float→half) or F32 (not clamped, for HDR). SNORM textures are replaced by UNORM for this strategy (`unsigned_normalized()`), like `GpuConvert`, since the range is mapped to [0, 1]. It is also meant for the `ViewSampler` (normal mode).
@@ -254,7 +283,7 @@ Compressed textures will use the mipmaps stored in the file when present; otherw
 
 ## Normal mode
 
-The GPU never sees the pyramid. The CPU turns the current view into one frame about the size of the screen, and only that frame is uploaded.
+The GPU never sees the pyramid as a whole. The CPU produces the pyramid tiles around the current view, and only the tiles the GPU doesn't hold yet are uploaded, into a ring texture about the size of the screen.
 
 ### Pyramid file
 
@@ -271,46 +300,55 @@ One file per image in the cache directory: `<cache>/<key>.pyr`, holding **level 
 `TiledRenderer` owns one build thread (`std::jthread`), started only when the pyramid isn't complete. It runs `ImageSource::decode()` into a `PyramidBuilderSink`, for uncompressed sources too (`BmpSource::decode()` streams rows out of the mmap). Decoding and building are a single pass, and level 0 is never read back.
 
 - The sink writes each row into the level-0 tiles and cascades 2× box downsampling: each level keeps one row waiting for its partner (row `y` pairs with `y ^ 1`, top-down); a row whose partner is outside the level (odd height) is averaged alone. Horizontal pairs are averaged the same way, in float (integer arithmetic for U8), and stored back in the native type.
-- Rows arrive in storage order, so bottom-up sources produce every level bottom row first, and each level's written rows are always a prefix (top-down) or a suffix (bottom-up) of it. **Readiness** is therefore one atomic row counter per level (`PyramidStore::row_ready(level, y)`), and a frame row becomes sharp as soon as its own row is written, at any level. A global `progress` counter changes whenever rows are written.
+- Rows arrive in storage order, so bottom-up sources produce every level bottom row first, and each level's written rows are always a prefix (top-down) or a suffix (bottom-up) of it. **Readiness** is therefore one atomic row counter per level (`PyramidStore::row_ready(level, y)`), and a tile row becomes sharp as soon as its own row is written, at any level. A global `progress` counter changes whenever rows are written.
 - The sink wakes the main thread at most every 100 ms, and when it is done. The decode thread checks the stop token between chunks, so closing the window stops it within one chunk.
 
 Measured on a fast SSD: a 30000×22300 BMP (2 GB) builds in 19 s, a 40869×30379 JPEG (538 MB) in 54 s (decoding dominates). The second run opens instantly.
 
-### Frames
+### Tiles
 
-A frame is **level-aligned**: one texel per pixel of the chosen level, not per screen pixel. The CPU only copies and converts; the GPU does the remaining 1–2× minification with `GL_LINEAR`, or the magnification with `GL_NEAREST`. A frame stays exact while the camera moves, so panning inside it needs no new frame.
+The unit of work is a **pyramid tile**: 256×256 pixels of one level, aligned like the tiles of the `.pyr` (tile (tx, ty) of level l+1 covers tiles (2tx…2tx+1, 2ty…2ty+1) of level l). One texel per pixel of the chosen level, not per screen pixel: the CPU only copies and converts; the GPU does the remaining 1–2× minification with `GL_LINEAR`, or the magnification with `GL_NEAREST`.
 
 - **Level selection:** `level = clamp(floor(log2(1 / zoom)), 0, max_level)`, so one screen pixel covers between 1 and 2 pixels of the level (less than 1 when zoomed in past 100% at level 0).
-- **Frame plan** (`pyramid/tile_selection`, pure): the visible pixels of the level plus a margin of 25% of the visible size on each side, clamped to the level and to `GL_MAX_TEXTURE_SIZE`. A frame is up to about 4× the window's pixels (one level pixel can be half a screen pixel), plus the margin. `covers(frame, view)`: same level, and everything visible is inside it. Otherwise a new frame is requested.
-- **`ViewSampler`** (`pyramid/view_sampler`): a dispatcher thread with a single-slot mailbox (a newer `FrameRequest` replaces the waiting one) splits the frame into bands of 64 rows over a `ThreadPool` (one worker per hardware thread, minus one). Each row is produced by the first source that has it:
-  1. the row of the chosen level, converted tile segment by tile segment (`PixelConverter::convert_span`);
+- **Tile selection** (`pyramid/tile_selection`, pure):
+  - `ring_slots(window, level)`: the ring's size in tiles per axis, `ceil(2 × window / 256) + 3` (a level pixel can be half a screen pixel, plus one tile of misalignment and a one-tile margin on each side), clamped to the level's tiles and to `GL_MAX_TEXTURE_SIZE`. It depends only on the window size, so zooming within a level keeps the ring.
+  - `tile_window(view, level, slots)`: the tiles touching the visible pixels, grown by one tile on each side, clamped to the level and then to the slots (centered on the visible part).
+  - `tile_pixels(level, tx, ty)`: the tile's pixels, clamped to the level (edge tiles are smaller).
+- **`ViewSampler`** (`pyramid/view_sampler`): a dispatcher thread with a single-slot mailbox (a newer `TileRequest` replaces the waiting one) runs the request's tiles, nearest to the view's center first, over a `ThreadPool` (one worker per hardware thread, minus one). When a newer request arrives, the tiles not started yet are skipped: the renderer always sends again the tiles it still waits for. Each tile row is produced by the first source that has it:
+  1. the row of the tile's level, converted (`PixelConverter::convert_span`);
   2. at level 0 of an uncompressed source, the row of the source mmap itself;
   3. the nearest coarser level that has the row, upsampled (nearest);
   4. the **preview**: for each texel, random samples of the level-0 pixels it covers, averaged. They come from the source mmap (uncompressed sources: available at once) or from the level-0 rows already decoded. The samples are fixed per texel, and each refinement pass doubles them (1, 2, 4, 8, 16);
   5. nothing: the texel stays transparent.
 
-  Bands go to the `UploadQueue` with their generation, then an end-of-frame band saying whether any fallback was used. Workers drop bands of a request that was replaced.
-- **Frame texture:** the frame `TextureFormat` is the display format made UNORM (the converter maps `range` to [0, 1]) **with an alpha channel** (`with_alpha`: mono becomes gray+alpha, RGB becomes RGBA), so that texels not sampled yet are really transparent. Colors are **premultiplied** by alpha (the converter multiplies them when the alpha comes from the source; opaque images are unchanged) and frames are blended with `GL_ONE, GL_ONE_MINUS_SRC_ALPHA`: with straight alpha, `GL_LINEAR` would mix the last sampled row with the transparent black one below it into a darker row at every band edge while a frame is arriving. No mipmaps.
+  Each tile goes to the `TileQueue` (`UploadQueue<UploadTile>`) as one `UploadTile`: level, the `TileJob` (tile and pass), width × height, and `complete` if no fallback was used.
+- **Ring texture:** the frame `TextureFormat` is the display format made UNORM (the converter maps `range` to [0, 1]) **with an alpha channel** (`with_alpha`: mono becomes gray+alpha, RGB becomes RGBA), so that texels not sampled yet are really transparent. Colors are **premultiplied** by alpha (the converter multiplies them when the alpha comes from the source; opaque images are unchanged) and rings are blended with `GL_ONE, GL_ONE_MINUS_SRC_ALPHA`: with straight alpha, `GL_LINEAR` would darken the edge between sampled and transparent texels. No mipmaps.
 
 ```cpp
-struct FrameRequest {
-    std::uint64_t generation;    // newer requests cancel older ones
-    FramePlan plan;              // level + rectangle of level pixels
-    int pass;                    // preview refinement
+struct TileJob { std::size_t tx, ty; int pass; };    // pass: preview refinement
+struct TileRequest {
+    std::uint64_t generation;    // newer requests cancel the tiles of older ones not started yet
+    int level;
+    std::vector<TileJob> tiles;  // nearest to the view's center first
 };
 ```
 
 ### `TiledRenderer`
 
-- **Two frames:** `current` (the last finished frame) and `pending` (being sampled). A new request clears the pending texture (reused when the size matches) to transparent; bands are uploaded into it with `glTexSubImage2D` (up to 64 MB per `update()`); the end-of-frame band makes it `current`.
-- **Stale frames:** `draw()` draws `current` at its own image region, then `pending` over it. Both slide and scale with the camera, the parts of `pending` not sampled yet show `current` through, and areas neither covers show the background. `ImagePass` takes the region (`image_min/max`, level-0 px) and the shader discards outside it.
-- **Refinement:** an incomplete frame is requested again (same plan, next preview pass) when the pyramid has progressed since it was requested, at most every 100 ms while building, or immediately while preview passes remain.
-- **`loading()`** is true only while there is work for `update()`: queued bands, a finished build to join, or a refinement that is due. Otherwise the window waits for events; the sampler and the builder wake it.
+- **Tile ring:** one texture of `slots.x × slots.y` tile slots for the current level. Tile (tx, ty) always lives in slot (tx mod slots.x, ty mod slots.y), so the window can move without moving any texel: GL 3.3 can't copy within a texture cheaply, and it doesn't need to. The texture wraps with `GL_REPEAT` and neighbouring tiles of the window are neighbouring slots modulo the ring, so filtering across tile seams is correct.
+- **Slots:** each slot records the tile it holds, the pass last requested, the pass uploaded (−1: transparent), whether it is complete, and the pyramid progress when it was requested. `update()`:
+  1. uploads queued tiles (up to 64 MB) with `glTexSubImage2D` at their slot, if the slot still holds that tile of the current level (others are dropped);
+  2. starts a new ring when the level or the ring size changes;
+  3. assigns the slots to the tiles of the new `tile_window`: a slot that held another tile is cleared to transparent, so it never shows a wrong tile;
+  4. posts a `TileRequest` with the tiles that are **missing**, or **due for refinement** (incomplete, and either more preview passes remain, or the pyramid progressed since the request, at most every 100 ms while building). The tiles still being sampled go with them, since the new request cancels the old one. Nothing is posted when nothing is missing or due, so panning within the margin, or a static view, costs nothing; a pan past it requests only the newly exposed column or row of tiles.
+- **Stale ring:** after a level change the old ring is kept as `previous` (unless the new one already showed something and the old one nothing) and drawn under the new one at its own level, until every visible tile of the new ring has texels. Its texture is reused for the next ring when the size matches.
+- **Drawing:** `ImagePass::draw_ring` maps image coordinates to texels of the level, clamps them to the window shrunk by half a texel (like `GL_CLAMP_TO_EDGE`, so linear filtering never reads a wrapped-around slot at the window's or the image's edge), and discards fragments outside the window.
+- **`loading()`** is true only while there is work for `update()`: queued tiles, a finished build to join, or a tile whose refinement is due. Otherwise the window waits for events; the sampler and the builder wake it.
 - **Destruction:** the build thread is stopped and joined, then the sampler, then the store is unmapped (and the incomplete file deleted).
 
 ## Image shader
 
-One program for both modes: a quad covering the window, texture coordinates from the `ViewTransform`, and a texture sample. The `region_min/max` uniforms give the image region the texture covers (the whole image in fast mode, the frame region in normal mode, possibly reaching past the image edge); fragments outside the region or the image are discarded. Background outside the region is the clear color. Alpha is composited over the background with standard blending.
+One program for both modes: a quad covering the window, texture coordinates from the `ViewTransform`, and a texture sample. The `region_min/max` uniforms give the image region the texture covers (the whole image in fast mode, the ring's tile window in normal mode); fragments outside the region or the image are discarded. Image coordinates become texel coordinates with `texel_scale/offset`, clamped to `texel_min/max` (unbounded in fast mode, the window minus half a texel for a ring), then divided by the texture size. Background outside the region is the clear color. Alpha is composited over the background with standard blending.
 
 `DisplayParams` never reach the shader:
 
@@ -328,8 +366,8 @@ Defaults come from the channel roles: `Gray` is replicated (swizzle), BGR is han
 
 | Changing | Fast mode | Normal mode |
 |---|---|---|
-| a reorder of the stored channels | new swizzle, instant | new frame |
-| anything else (other channels, `range`) | re-run conversion from the source: GPU convert bands from the mmap, convert pass from the decoded data, or a new decode for `StreamUpload` | new frame |
+| a reorder of the stored channels | new swizzle, instant | new tiles |
+| anything else (other channels, `range`) | re-run conversion from the source: GPU convert bands from the mmap, convert pass from the decoded data, or a new decode for `StreamUpload` | new tiles |
 
 ## Load plan
 
@@ -347,7 +385,7 @@ struct LoadPlan {
     Mode mode;
     FastStrategy fast;      // valid if mode == Fast
     Level0Source level0;    // valid if mode == Normal
-    TextureFormat texture;  // display texture (fast) or frame texture (normal)
+    TextureFormat texture;  // display texture (fast) or tile ring texture (normal)
 };
 
 LoadPlan make_plan(const ImageInfo& info, const FormatCaps& caps, const GpuLimits& gpu, const Settings& s);
@@ -447,7 +485,7 @@ Decoding and pyramid building happen in a single pass: `PyramidBuilderSink` writ
 
 ```
  decode thread       ImageSource::decode ──► RowSink (TextureUploadSink / PyramidBuilderSink ──► .pyr mmap)
- view sampler        FrameRequest ──► ThreadPool: pyramid / source mmap ──► converted frame bands ──► UploadQueue
+ view sampler        TileRequest ──► ThreadPool: pyramid / source mmap ──► converted tiles ──► UploadQueue
                                                   │
  main thread (GL)    UploadQueue.pop() up to 64 MB per wake-up ──► glTexSubImage2D ──► image shader
                      DirectUpload: glTexSubImage2D from the mmap
@@ -457,11 +495,11 @@ Decoding and pyramid building happen in a single pass: `PyramidBuilderSink` writ
                      ▲ woken by RGFW_stopCheckEvents() whenever something is queued
 ```
 
-All GL calls stay on the main thread; workers only hand over CPU buffers. `GpuConvert` needs no worker: the mmap is already readable, so the main thread uploads and converts one band per wake-up and redraws in between. A single `UploadQueue` type serves every mode. For `StreamUpload` the decode thread is a `std::jthread` owned by `FastRenderer` (a `StreamJob` holding the converter, the queue, the sink and the thread, destroyed thread first). In normal mode `TiledRenderer` owns the build thread and the `ViewSampler` (its dispatcher thread and `ThreadPool`); `update(view)` posts a new `FrameRequest` when the current frame no longer covers the view (pan out of the margin, zoom to another level, window resize), or to refine an incomplete frame; bands from an older generation are dropped.
+All GL calls stay on the main thread; workers only hand over CPU buffers. `GpuConvert` needs no worker: the mmap is already readable, so the main thread uploads and converts one band per wake-up and redraws in between. A single `UploadQueue` template serves every mode: `UploadQueue<UploadBand>` (rows) in fast mode, `UploadQueue<UploadTile>` in normal mode. For `StreamUpload` the decode thread is a `std::jthread` owned by `FastRenderer` (a `StreamJob` holding the converter, the queue, the sink and the thread, destroyed thread first). In normal mode `TiledRenderer` owns the build thread and the `ViewSampler` (its dispatcher thread and `ThreadPool`); `update(view)` posts a new `TileRequest` when the view needs tiles the ring doesn't hold (pan out of the margin, zoom to another level, window resize), or to refine incomplete tiles; tiles whose slot holds another tile by the time they arrive are dropped.
 
 ## Coordinates
 
-`ViewTransform` is the shared camera. Only `Window` mutates it (pan, zoom, fit, resize); renderers receive it as `const&` each frame, and the normal mode renderer copies it into each `FrameRequest`. All positions are in level-0 image pixels, top-down; conversion to pyramid levels happens inside the view sampler. Bottom-up sources are flipped through the texture coordinates (fast mode direct upload), by the convert shader (`GpuConvert`), or by the CPU converter / pyramid builder (everything else). `image_size` is set once from `renderer->image_size()` after loading.
+`ViewTransform` is the shared camera. Only `Window` mutates it (pan, zoom, fit, resize); renderers receive it as `const&` each frame, and the normal mode renderer turns it into the tiles of each `TileRequest`. All positions are in level-0 image pixels, top-down; conversion to pyramid levels happens inside the view sampler. Bottom-up sources are flipped through the texture coordinates (fast mode direct upload), by the convert shader (`GpuConvert`), or by the CPU converter / pyramid builder (everything else). `image_size` is set once from `renderer->image_size()` after loading.
 
 ## Directory layout
 
@@ -494,8 +532,8 @@ src/
     pyramid_format.hpp   .pyr header (with PixelLayout), level geometry, tile addressing
     pyramid_builder.*    PyramidBuilderSink: level 0 + native-type 2x downsampling, a RowSink
     pyramid_store.*      read-write mmap of the .pyr, per-level row readiness, progress
-    tile_selection.*     ViewTransform → level + frame rectangle, covers(), pure
-    view_sampler.*       FrameRequest → frame bands (copy, convert, coarser level / preview fallback)
+    tile_selection.*     ViewTransform → level, ring size, tile window, tile pixels, pure
+    view_sampler.*       TileRequest → one band per tile (copy, convert, coarser level / preview fallback)
   render/
     image_renderer.hpp   init / update / draw / loading / image_size (the window keeps redrawing while loading())
     gl/                  program utils, debug helpers, texture.*, framebuffer.*, raw_buffer.*, mipmap_builder.*
@@ -506,7 +544,7 @@ src/
       decode_pass.*      encoded blocks → decoded texture (FBO)
       convert_pass.*     decoded texture or raw band → display texture (FBO)
     fast_renderer.*      owns the display texture, picks the upload path, drives GpuConvert bands
-    tiled_renderer.*     posts FrameRequests, uploads Frame bands, draws the current/stale frame
+    tiled_renderer.*     tile ring slots, posts the missing tiles, uploads them, draws the current/stale ring
     shaders/
       image.vert/.frag      final: sample the texture (today's main.vert/.frag)
       fullscreen.vert       for the decode and convert passes
@@ -536,9 +574,9 @@ window.set_renderer(session->renderer());                           // session o
 - **Mipmap memory:** the mip chain adds about a third of the texture size. Its storage is allocated with the texture, before the image data (to avoid relocating the image), and it is included in the fast mode budget.
 - **RGB textures:** many drivers store `RGB8` internally as 4 bytes per pixel, so RGB saves less VRAM than expected (RAM and upload bandwidth savings are real). FBO targets for 3 channels are RGBA anyway, since RGB is not guaranteed renderable.
 - **Integer precision:** U32/I32 data is converted to F32, so values above 2²⁴ lose precision. Irrelevant for display; exact values (e.g. a pixel inspector) must be read on the CPU side.
-- **Normal mode latency:** panning past the frame's margin, zooming to another level or changing the display needs a new CPU frame. Stale-frame drawing hides it during interaction, but newly exposed borders stay empty until the frame arrives.
+- **Normal mode latency:** panning past the ring's one-tile margin needs the newly exposed tiles (only those) from the CPU; zooming to another level or changing the display needs every tile of the new ring. The stale ring hides a level change, but newly exposed tiles of a pan stay empty until they arrive.
 - **Normal mode cache key:** the key is the file name and header, not the pixels: editing an image's pixels without changing its name or header (same size and format) reuses the old pyramid. Delete the `.pyr` (or use another `--cache-dir`) to rebuild it. Pyramids are never evicted: each one takes about 4/3 of the decoded image size on disk.
 - **Normal mode disk usage while building:** the whole `.pyr` is allocated up front (sparse on Windows); the build fails at the start with a clear message if the disk doesn't have room for it.
 - **GPU-decoded peak memory:** encoded, decoded and converted textures can coexist during the passes; `transient_bytes` accounts for it in the budget.
-- **Rows not loaded yet with RGB textures (fast mode):** the texture is cleared to transparent, but an RGB texture's swizzle forces alpha to 1, so missing rows show black instead of the background color (`StreamUpload` and `GpuConvert` while loading, a truncated file afterwards). Normal mode frames always have an alpha channel, so they don't have this problem.
+- **Rows not loaded yet with RGB textures (fast mode):** the texture is cleared to transparent, but an RGB texture's swizzle forces alpha to 1, so missing rows show black instead of the background color (`StreamUpload` and `GpuConvert` while loading, a truncated file afterwards). Normal mode rings always have an alpha channel, so they don't have this problem.
 - **`GpuConvert` and 3 channels:** the convert pass renders into an FBO, so 3-channel results are stored as RGBA (RGB is not guaranteed renderable). Direct upload keeps true RGB textures.

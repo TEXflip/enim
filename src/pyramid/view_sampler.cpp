@@ -8,7 +8,6 @@
 
 namespace {
 
-constexpr std::size_t kBandRows = 64;
 constexpr int kMaxPreviewSamples = 16;
 
 /// @brief Fixed pseudo-random value per (x, y, sample): each preview pass reuses the previous pass's samples.
@@ -25,11 +24,10 @@ std::uint64_t mix(std::uint64_t x, std::uint64_t y, std::uint64_t i) {
 
 namespace enim {
 
-ViewSampler::ViewSampler(const PyramidStore& store, const ImageInfo& info, std::span<const std::uint8_t> source_pixels,
-                         const TextureFormat& texture, const DisplayParams& display, UploadQueue& queue,
-                         std::function<void()> wakeup)
+ViewSampler::ViewSampler(const PyramidStore& store, const ImageInfo& info, std::span<const std::uint8_t> source_pixels, const TextureFormat& texture,
+                         const DisplayParams& display, TileQueue& queue, std::function<void()> wakeup)
     : store(store), info(info), source_pixels(source_pixels), converter(info.layout, info.width, texture, display, true),
-      texel_bytes(texture.bytes_per_pixel()), queue(queue), wakeup(std::move(wakeup)), pool(ThreadPool::default_workers()) {
+      texel_bytes(texture.bytes_per_pixel()), queue(queue), wakeup(std::move(wakeup)), pool(1) {
     this->thread = std::jthread([this](std::stop_token stop) { this->run(stop); });
 }
 
@@ -38,68 +36,53 @@ ViewSampler::~ViewSampler() {
     this->request_cv.notify_all();
 }
 
-void ViewSampler::post(const FrameRequest& request) {
+void ViewSampler::post(TileRequest request) {
     {
         std::lock_guard lock(this->mutex);
-        this->next = request;
         this->latest.store(request.generation, std::memory_order_release);
+        this->next = std::move(request);
     }
     this->request_cv.notify_all();
 }
 
 void ViewSampler::run(std::stop_token stop) {
     while (true) {
-        FrameRequest request;
+        TileRequest request;
         {
             std::unique_lock lock(this->mutex);
             if (!this->request_cv.wait(lock, stop, [&] { return this->next.has_value(); }))
                 return;
-            request = *this->next;
+            request = std::move(*this->next);
             this->next.reset();
         }
-        this->sample_frame(request, stop);
+        this->sample_tiles(request, stop);
     }
 }
 
-void ViewSampler::sample_frame(const FrameRequest& request, std::stop_token stop) {
-    const std::size_t width = request.plan.rect.width();
-    const std::size_t height = request.plan.rect.height();
-    const std::size_t row_bytes = width * this->texel_bytes;
-    const std::size_t band_count = (height + kBandRows - 1) / kBandRows;
-    std::atomic<bool> exact{true};
-
+void ViewSampler::sample_tiles(const TileRequest& request, std::stop_token stop) {
     auto stale = [&] { return stop.stop_requested() || this->latest.load(std::memory_order_acquire) != request.generation; };
 
-    this->pool.run(band_count, [&](std::size_t band_index) {
+    this->pool.run(request.tiles.size(), [&](std::size_t index) {
         if (stale())
             return;
-        UploadBand band;
-        band.generation = request.generation;
-        band.first_row = band_index * kBandRows;
-        band.rows = std::min(kBandRows, height - band.first_row);
-        band.pixels.resize(band.rows * row_bytes);
-        std::vector<std::uint8_t> scratch(width * this->info.layout.bytes_per_pixel());
-        for (std::size_t r = 0; r < band.rows; ++r)
-            if (!this->sample_row(request, request.plan.rect.y0 + band.first_row + r, band.pixels.data() + r * row_bytes, scratch))
-                exact.store(false, std::memory_order_relaxed);
-        if (!stale() && this->queue.push(std::move(band), stop))
+        const TileJob& job = request.tiles[index];
+        const LevelRect rect = tile_pixels(this->store.geometry(), request.level, job.tx, job.ty);
+        const std::size_t row_bytes = rect.width() * this->texel_bytes;
+
+        UploadTile tile{.level = request.level, .job = job, .width = rect.width(), .height = rect.height()};
+        tile.pixels.resize(tile.height * row_bytes);
+        std::vector<std::uint8_t> scratch(rect.width() * this->info.layout.bytes_per_pixel());
+        for (std::size_t r = 0; r < tile.height; ++r)
+            if (!this->sample_row(request.level, rect, job.pass, rect.y0 + r, tile.pixels.data() + r * row_bytes, scratch))
+                tile.complete = false;
+        // a tile finished after a newer request is still queued: the renderer keeps it if its slot still wants it
+        if (this->queue.push(std::move(tile), stop))
             this->wakeup();
     });
-
-    if (stale())
-        return;
-    UploadBand end;
-    end.generation = request.generation;
-    end.end_of_frame = true;
-    end.complete = exact.load();
-    if (this->queue.push(std::move(end), stop))
-        this->wakeup();
 }
 
-bool ViewSampler::sample_row(const FrameRequest& request, std::size_t y, std::uint8_t* dst, std::vector<std::uint8_t>& scratch) const {
-    const int level = request.plan.level;
-    const LevelRect& rect = request.plan.rect;
-
+bool ViewSampler::sample_row(int level, const LevelRect& rect, int pass, std::size_t y, std::uint8_t* dst,
+                             std::vector<std::uint8_t>& scratch) const {
     if (this->store.row_ready(level, y)) {
         // one span per tile the row crosses
         for (std::size_t x = rect.x0; x < rect.x1;) {
@@ -113,22 +96,22 @@ bool ViewSampler::sample_row(const FrameRequest& request, std::size_t y, std::ui
     if (level == 0 && !this->source_pixels.empty()) {
         const PixelLayout& layout = this->info.layout;
         std::size_t storage_row = layout.rows == RowOrder::BottomUp ? this->info.height - 1 - y : y;
-        this->converter.convert_span(this->source_pixels.data() + storage_row * layout.stride + rect.x0 * layout.bytes_per_pixel(),
-                                     rect.width(), dst);
+        const std::uint8_t* src = this->source_pixels.data() + storage_row * layout.stride + rect.x0 * layout.bytes_per_pixel();
+        this->converter.convert_span(src, rect.width(), dst);
         return true;
     }
 
-    if (!this->coarser_row(request, y, dst, scratch))
-        this->preview_row(request, y, dst, scratch);
+    if (!this->coarser_row(level, rect, y, dst, scratch))
+        this->preview_row(level, rect, pass, y, dst, scratch);
     return false;
 }
 
-bool ViewSampler::coarser_row(const FrameRequest& request, std::size_t y, std::uint8_t* dst, std::vector<std::uint8_t>& scratch) const {
+bool ViewSampler::coarser_row(int level, const LevelRect& rect, std::size_t y, std::uint8_t* dst,
+                              std::vector<std::uint8_t>& scratch) const {
     const std::size_t bpp = this->info.layout.bytes_per_pixel();
-    const LevelRect& rect = request.plan.rect;
     const PyramidGeometry& geom = this->store.geometry();
-    for (int coarse = request.plan.level + 1; coarse < geom.level_count(); ++coarse) {
-        int shift = coarse - request.plan.level;
+    for (int coarse = level + 1; coarse < geom.level_count(); ++coarse) {
+        int shift = coarse - level;
         std::size_t cy = y >> shift;
         if (!this->store.row_ready(coarse, cy))
             continue;
@@ -149,14 +132,13 @@ const std::uint8_t* ViewSampler::level0_pixel(std::size_t x, std::size_t y) cons
     return this->store.row_ready(0, y) ? this->store.pixel(0, x, y) : nullptr;
 }
 
-void ViewSampler::preview_row(const FrameRequest& request, std::size_t y, std::uint8_t* dst, std::vector<std::uint8_t>& scratch) const {
+void ViewSampler::preview_row(int level, const LevelRect& rect, int pass, std::size_t y, std::uint8_t* dst,
+                              std::vector<std::uint8_t>& scratch) const {
     const PixelLayout& layout = this->info.layout;
     const std::size_t bpp = layout.bytes_per_pixel();
     const std::size_t sample_bytes = sample_size(layout.sample);
     const bool swap = sample_io::needs_swap(layout);
-    const int level = request.plan.level;
-    const LevelRect& rect = request.plan.rect;
-    const int samples = std::min(1 << std::min(request.pass, 4), kMaxPreviewSamples);
+    const int samples = std::min(1 << std::min(pass, 4), kMaxPreviewSamples);
 
     // level-0 rows covered by this row
     const std::size_t fy0 = y << level;

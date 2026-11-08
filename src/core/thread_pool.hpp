@@ -9,7 +9,7 @@
 
 namespace enim {
 
-/// @brief Fixed set of worker threads running the items of one parallel loop at a time (view sampler bands).
+/// @brief Fixed set of worker threads running the items of one parallel loop at a time (view sampler tiles).
 struct ThreadPool {
     /// @param workers Threads besides the caller of run(), which works too. 0 runs everything on the caller.
     explicit ThreadPool(std::size_t workers);

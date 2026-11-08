@@ -13,7 +13,7 @@ namespace enim {
 /// @brief Fast mode StreamUpload: converts decoded rows into display texture rows (on the decode thread) and queues
 /// them for the main thread, which uploads them with glTexSubImage2D.
 struct TextureUploadSink : public RowSink {
-    TextureUploadSink(const ImageInfo& info, const PixelConverter& converter, UploadQueue& queue, std::function<void()> wakeup,
+    TextureUploadSink(const ImageInfo& info, const PixelConverter& converter, BandQueue& queue, std::function<void()> wakeup,
                       std::stop_token stop)
         : info(info), converter(converter), queue(queue), wakeup(std::move(wakeup)), stop(std::move(stop)) {}
 
@@ -23,7 +23,7 @@ struct TextureUploadSink : public RowSink {
   private:
     ImageInfo info;
     const PixelConverter& converter;
-    UploadQueue& queue;
+    BandQueue& queue;
     std::function<void()> wakeup; // wakes the main thread when a band is queued
     std::stop_token stop;
 };

@@ -28,12 +28,20 @@ struct ImagePass {
     /// @param flip_y True if the texture rows are stored bottom-up.
     void draw(const Texture& texture, const ViewTransform& view, bool flip_y) const;
 
-    /// @brief Draws a texture covering only part of the image (a normal mode frame).
-    /// @param region_min, region_max The image region the texture covers, in image px. Nothing is drawn outside it.
-    /// @param premultiplied True if the texture's colors are premultiplied by alpha. Filtering then blends transparent
+    /// @brief Draws a tile ring (normal mode): pixel (x, y) of a pyramid level is texel (x mod width, y mod height) of
+    /// the texture, which must wrap with GL_REPEAT. Colors are premultiplied by alpha, so filtering blends transparent
     /// texels correctly (straight alpha darkens the edge between opaque texels and transparent black ones).
-    void draw(const Texture& texture, const ViewTransform& view, bool flip_y, Vec2f region_min, Vec2f region_max,
-              bool premultiplied = false) const;
+    /// @param window_min, window_max The level pixels the ring holds, clamped to the level. Nothing is drawn outside
+    /// them, and filtering never reads past them (like GL_CLAMP_TO_EDGE at the window's edges).
+    void draw_ring(const Texture& texture, const ViewTransform& view, int level, Vec2f window_min, Vec2f window_max) const;
+
+  private:
+    struct TexelMapping {
+        Vec2f scale, offset; // image coordinates in [0, 1] -> texel coordinates
+        Vec2f min, max;      // texel clamp
+    };
+    void draw_mapped(const Texture& texture, const ViewTransform& view, bool flip_y, Vec2f region_min, Vec2f region_max,
+                     bool premultiplied, const TexelMapping& mapping) const;
 };
 
 } // namespace enim

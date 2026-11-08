@@ -39,7 +39,7 @@ TextureFormat unsigned_normalized(const TextureFormat& format);
 /// @brief What a conversion writes into each texel channel (R, G, B, A of the texture, before the swizzle).
 struct TexelChannels {
     std::array<std::int8_t, 4> source{-1, -1, -1, -1}; // source channel, -1 = constant
-    std::array<float, 4> constant{0, 0, 0, 1};
+    std::array<float, 4> constant{0, 0, 0, 1}; // value of the constant for each texel channel (used when source is -1)
 };
 
 /// @brief Maps the display channels onto the channels the texture stores: mono is (gray, alpha), color is (R, G, B, A).

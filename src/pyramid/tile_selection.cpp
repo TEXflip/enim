@@ -3,12 +3,6 @@
 #include <algorithm>
 #include <cmath>
 
-namespace {
-
-constexpr double kMarginFraction = 0.25; // of the visible size, on each side
-
-} // namespace
-
 namespace enim {
 
 int choose_level(float zoom, int level_count) {
@@ -37,32 +31,56 @@ LevelRect visible_rect(const ViewTransform& view, const PyramidGeometry& geom, i
     return r;
 }
 
-FramePlan plan_frame(const ViewTransform& view, const PyramidGeometry& geom, std::size_t max_texture_size) {
-    FramePlan plan;
-    plan.level = choose_level(view.zoom, geom.level_count());
-    const PyramidLevel& l = geom.levels[plan.level];
-    LevelRect visible = visible_rect(view, geom, plan.level);
-
-    // grow each axis by the margin, centered on the visible part, within the level and the texture limit
-    auto grow = [&](std::size_t v0, std::size_t v1, std::size_t size, std::size_t& out0, std::size_t& out1) {
-        std::size_t extent = v1 - v0;
-        std::size_t margin = static_cast<std::size_t>(std::ceil(extent * kMarginFraction)) + 1;
-        std::size_t want = std::min(extent + 2 * margin, max_texture_size);
-        want = std::min(want, size);
-        std::size_t center2 = v0 + v1; // twice the center
-        std::size_t start = center2 / 2 >= want / 2 ? center2 / 2 - want / 2 : 0;
-        start = std::min(start, size - want);
-        out0 = start;
-        out1 = start + want;
-    };
-    grow(visible.x0, visible.x1, l.width, plan.rect.x0, plan.rect.x1);
-    grow(visible.y0, visible.y1, l.height, plan.rect.y0, plan.rect.y1);
-    return plan;
+TileRect tiles_of(const LevelRect& rect) {
+    if (rect.empty())
+        return TileRect{};
+    return TileRect{rect.x0 / kTileSize, rect.y0 / kTileSize, (rect.x1 + kTileSize - 1) / kTileSize,
+                    (rect.y1 + kTileSize - 1) / kTileSize};
 }
 
-bool covers(const FramePlan& frame, const ViewTransform& view, const PyramidGeometry& geom) {
-    int level = choose_level(view.zoom, geom.level_count());
-    return level == frame.level && frame.rect.contains(visible_rect(view, geom, level));
+LevelRect tile_pixels(const PyramidGeometry& geom, int level, std::size_t tx, std::size_t ty) {
+    const PyramidLevel& l = geom.levels[level];
+    LevelRect r;
+    r.x0 = tx * kTileSize;
+    r.y0 = ty * kTileSize;
+    r.x1 = std::min(r.x0 + kTileSize, l.width);
+    r.y1 = std::min(r.y0 + kTileSize, l.height);
+    return r;
+}
+
+SlotGrid ring_slots(Vec2f window_size, const PyramidGeometry& geom, int level, std::size_t max_texture_size) {
+    const PyramidLevel& l = geom.levels[level];
+    const std::size_t max_slots = std::max<std::size_t>(1, max_texture_size / kTileSize);
+    auto slots = [&](float window, std::size_t tiles) {
+        // visible level px: at most 2 per screen px, then misalignment and margins
+        std::size_t want = static_cast<std::size_t>(std::ceil(2.0 * std::max(window, 1.0f) / kTileSize)) + 3;
+        return std::max<std::size_t>(1, std::min({want, tiles, max_slots}));
+    };
+    return SlotGrid{slots(window_size.x, l.tiles_x), slots(window_size.y, l.tiles_y)};
+}
+
+TileRect tile_window(const ViewTransform& view, const PyramidGeometry& geom, int level, SlotGrid slots) {
+    const PyramidLevel& l = geom.levels[level];
+    TileRect visible = tiles_of(visible_rect(view, geom, level));
+    if (visible.empty())
+        return TileRect{};
+
+    // grow by the margin, clamped to the level, then to the slots around the visible part's center
+    auto fit = [](std::size_t v0, std::size_t v1, std::size_t tiles, std::size_t count, std::size_t& out0, std::size_t& out1) {
+        std::size_t t0 = v0 > 0 ? v0 - 1 : 0;
+        std::size_t t1 = std::min(v1 + 1, tiles);
+        if (t1 - t0 > count) {
+            std::size_t center = (v0 + v1) / 2;
+            t0 = std::clamp(center >= count / 2 ? center - count / 2 : 0, t0, t1 - count);
+            t1 = t0 + count;
+        }
+        out0 = t0;
+        out1 = t1;
+    };
+    TileRect r;
+    fit(visible.tx0, visible.tx1, l.tiles_x, slots.x, r.tx0, r.tx1);
+    fit(visible.ty0, visible.ty1, l.tiles_y, slots.y, r.ty0, r.ty1);
+    return r;
 }
 
 } // namespace enim

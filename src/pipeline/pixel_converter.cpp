@@ -15,7 +15,9 @@ using enim::sample_io::read_sample;
 /// @brief Writes a normalized value t (0..1 maps to the display range) in the texture's sample type.
 void write_sample(std::uint8_t* p, SampleType type, float t) {
     switch (type) {
-    case SampleType::U8: *p = static_cast<std::uint8_t>(std::lround(std::clamp(t, 0.0f, 1.0f) * 255.0f)); break;
+    case SampleType::U8:
+        *p = static_cast<std::uint8_t>(std::lround(std::clamp(t, 0.0f, 1.0f) * 255.0f));
+        break;
     case SampleType::U16: {
         auto v = static_cast<std::uint16_t>(std::lround(std::clamp(t, 0.0f, 1.0f) * 65535.0f));
         std::memcpy(p, &v, sizeof(v));
@@ -26,7 +28,9 @@ void write_sample(std::uint8_t* p, SampleType type, float t) {
         std::memcpy(p, &v, sizeof(v));
         break;
     }
-    default: std::memcpy(p, &t, sizeof(t)); break; // F32: float data is not clamped (HDR)
+    default:
+        std::memcpy(p, &t, sizeof(t));
+        break; // F32: float data is not clamped (HDR)
     }
 }
 
@@ -34,10 +38,8 @@ void write_sample(std::uint8_t* p, SampleType type, float t) {
 
 namespace enim {
 
-PixelConverter::PixelConverter(const PixelLayout& src, std::size_t width, const TextureFormat& dst, const DisplayParams& display,
-                               bool premultiply)
-    : src(src), width(width), dst(dst), texel(texel_channels(dst, display)), range(display.range),
-      swap_bytes(sample_io::needs_swap(src)) {
+PixelConverter::PixelConverter(const PixelLayout& src, std::size_t width, const TextureFormat& dst, const DisplayParams& display, bool premultiply)
+    : src(src), width(width), dst(dst), texel(texel_channels(dst, display)), range(display.range), swap_bytes(sample_io::needs_swap(src)) {
     this->fast_u8 = src.sample == SampleType::U8 && dst.sample == SampleType::U8 && display.range == default_range(SampleType::U8);
     // a constant alpha is 1: premultiplying would change nothing
     const int last = static_cast<int>(dst.channels) - 1;
@@ -62,7 +64,7 @@ void PixelConverter::convert_span(const std::uint8_t* src, std::size_t count, st
 }
 
 void PixelConverter::convert_span_u8(const std::uint8_t* src, std::size_t count, std::uint8_t* dst) const {
-    const std::size_t src_bpp = this->src.channels;
+    const std::size_t src_bpp = this->src.channels; // bytes per pixel for the source row (U8 only, fast path)
     const std::size_t channels = this->dst.channels;
     std::array<std::uint8_t, 4> constants{};
     for (std::size_t k = 0; k < channels; ++k)
@@ -92,8 +94,8 @@ void PixelConverter::convert_span_any(const std::uint8_t* src, std::size_t count
     for (std::size_t x = 0; x < count; ++x, src += src_bpp) {
         for (std::size_t k = 0; k < channels; ++k) {
             std::int8_t c = this->texel.source[k];
-            t[k] = c >= 0 ? (read_sample(src + c * sample_bytes, this->src.sample, this->swap_bytes) - this->range.x) * scale
-                          : this->texel.constant[k];
+            t[k] =
+                c >= 0 ? (read_sample(src + c * sample_bytes, this->src.sample, this->swap_bytes) - this->range.x) * scale : this->texel.constant[k];
         }
         if (this->alpha >= 0) {
             const float a = std::clamp(t[this->alpha], 0.0f, 1.0f);

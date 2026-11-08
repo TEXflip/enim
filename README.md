@@ -40,7 +40,8 @@ cmake --build bin
 ### macOS
 
 ```sh
-brew install nasm   # Intel Macs only
+brew install nasm          # Intel Macs only
+brew install fast_float    # macOS <26 only
 git submodule update --init
 CC=$(brew --prefix llvm)/bin/clang CXX=$(brew --prefix llvm)/bin/clang++ cmake --preset macos-x64 -G Ninja
 cmake --build bin

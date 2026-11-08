@@ -21,7 +21,7 @@ struct Settings {
     std::string image_path;
 };
 
-/// @brief Parses a memory size such as "512M", "2G", "1.5GiB" or "1048576" (binary units).
+/// @brief Parses a memory size such as "512M", "2G", "4GiB" or "1048576" (binary units), no decimals.
 /// @return The size in bytes, or nullopt if the string is not a valid size.
 std::optional<std::size_t> parse_size(std::string_view text);
 

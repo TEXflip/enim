@@ -1,18 +1,12 @@
-#include <charconv>
+#include <cctype>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <string>
 #include <vector>
 
 #include <settings/settings.hpp>
-
-#if defined(__APPLE__) && defined(__clang__) && defined(__ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__) && __ENVIRONMENT_MAC_OS_X_VERSION_MIN_REQUIRED__ < 260000
-#  include <fast_float/fast_float.h>
-#  define ENIM_FROM_CHARS fast_float::from_chars
-#else
-#  define ENIM_FROM_CHARS std::from_chars
-#endif
 
 namespace {
 
@@ -30,32 +24,42 @@ void set_fast_mode_max_bytes(enim::Settings& settings, const char* value, const 
 namespace enim {
 
 std::optional<std::size_t> parse_size(std::string_view text) {
-    double value = 0;
-    auto [end, ec] = ENIM_FROM_CHARS(text.data(), text.data() + text.size(), value);
-    if (ec != std::errc{} || value < 0)
+    constexpr std::size_t max_value = std::numeric_limits<std::size_t>::max();
+    std::size_t value = 0;
+    std::size_t digits = 0;
+    while (digits < text.size() && text[digits] >= '0' && text[digits] <= '9') {
+        auto digit = static_cast<std::size_t>(text[digits] - '0');
+        if (value > (max_value - digit) / 10) // prevent overflow
+            return std::nullopt;
+        value = value * 10 + digit;
+        ++digits;
+    }
+    if (digits == 0)
         return std::nullopt;
 
-    std::string_view unit(end, text.data() + text.size() - end);
+    std::string_view unit = text.substr(digits);
     if (unit.ends_with("iB"))
         unit.remove_suffix(2);
     else if (unit.ends_with("B") || unit.ends_with("b"))
         unit.remove_suffix(1);
 
-    double multiplier = 1;
-    if (unit.empty())
-        multiplier = 1;
-    else if (unit == "K" || unit == "k")
-        multiplier = 1024.0;
-    else if (unit == "M" || unit == "m")
-        multiplier = 1024.0 * 1024.0;
-    else if (unit == "G" || unit == "g")
-        multiplier = 1024.0 * 1024.0 * 1024.0;
-    else if (unit == "T" || unit == "t")
-        multiplier = 1024.0 * 1024.0 * 1024.0 * 1024.0;
-    else
+    if (unit.size() > 1)
         return std::nullopt;
 
-    return static_cast<std::size_t>(value * multiplier);
+    char prefix = unit.empty() ? '\0' : static_cast<char>(std::toupper(static_cast<unsigned char>(unit[0])));
+    unsigned shift = 0;
+    switch (prefix) {
+    case '\0': shift = 0; break;
+    case 'K': shift = 10; break;
+    case 'M': shift = 20; break;
+    case 'G': shift = 30; break;
+    case 'T': shift = 40; break;
+    default: return std::nullopt;
+    }
+
+    if (value > (std::numeric_limits<std::size_t>::max() >> shift)) // prevent overflow when shifting
+        return std::nullopt;
+    return value << shift;
 }
 
 void print_help(const char* program_name) {

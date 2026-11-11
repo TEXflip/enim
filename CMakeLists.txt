@@ -168,3 +168,10 @@ if (CMAKE_BUILD_TYPE STREQUAL "Release")
         COMMENT "Stripping enim (Release)"
     )
 endif()
+
+# image tests (tests/CMakeLists.txt): ctest --test-dir bin, after uv run tests/images/generate.py
+set_property(GLOBAL PROPERTY CTEST_TARGETS_ADDED 1) # no Experimental/Nightly/... dashboard targets
+include(CTest)
+if (BUILD_TESTING)
+    add_subdirectory(tests)
+endif()

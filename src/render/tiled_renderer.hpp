@@ -41,6 +41,8 @@ struct TiledRenderer : public ImageRenderer {
     /// @brief True while update() has work: tiles to upload, a finished build to join, or a tile to refine.
     /// In between the main thread waits: the sampler and the pyramid builder wake it.
     bool loading() const override;
+    /// @brief The pyramid build has been joined and every tile of the view's window has its last texels (none in flight).
+    bool load_finished() const override;
     Vec2f image_size() const override;
 
   private:

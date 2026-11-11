@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Each job builds enim, generates the test images (tests/images/generate.py, not committed) and runs the image tests
+# (tests/CMakeLists.txt): enim loads every image with --exit-after-load. The runners have no GPU, so OpenGL 3.3 comes
+# from Mesa's llvmpipe software renderer.
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    container: gcc:15 # GCC 15+ for #embed
+    steps:
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends cmake ninja-build nasm xvfb xauth libgl1-mesa-dri \
+            libglx-dev libx11-dev libxrandr-dev libxi-dev libxinerama-dev libxcursor-dev libxext-dev libgl1-mesa-dev
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Generate test images
+        run: uv run tests/images/generate.py
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: xvfb-run -a -s "-screen 0 1920x1080x24" ctest --test-dir build --output-on-failure -j "$(nproc)"
+
+  windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          path-type: inherit # keeps uv on the PATH
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-nasm
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Generate test images
+        run: uv run tests/images/generate.py
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      # the runner's opengl32.dll is GDI's OpenGL 1.1: Mesa's (latest mesa-dist-win release) next to enim.exe wins
+      - name: Install Mesa llvmpipe
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo pal1000/mesa-dist-win --pattern "*-release-msvc.7z" --dir "$env:RUNNER_TEMP\mesa"
+          7z x (Get-ChildItem "$env:RUNNER_TEMP\mesa\*.7z").FullName -o"$env:RUNNER_TEMP\mesa\out" | Out-Null
+          Copy-Item "$env:RUNNER_TEMP\mesa\out\x64\*.dll" build\
+
+      - name: Test
+        env:
+          GALLIUM_DRIVER: llvmpipe
+        run: ctest --test-dir build --output-on-failure -j "$(nproc)"
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: brew install llvm ninja
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Generate test images
+        run: uv run tests/images/generate.py
+
+      - name: Configure
+        run: |
+          LLVM=$(brew --prefix llvm)
+          CC=$LLVM/bin/clang CXX=$LLVM/bin/clang++ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      # macOS runners are VMs without a GPU: Apple's software OpenGL renderer is used
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -j "$(sysctl -n hw.ncpu)"

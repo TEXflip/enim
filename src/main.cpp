@@ -56,5 +56,7 @@ int main(int argc, char* argv[]) {
         PLOG_ERROR << img_load_result.error().message;
     window.run();
 
+    if (settings.exit_after_load && enim::error_counter().count() > 0)
+        return 1;
     return 0;
 }

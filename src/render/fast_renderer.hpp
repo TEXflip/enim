@@ -40,6 +40,7 @@ struct FastRenderer : public ImageRenderer {
     bool loading() const override {
         return this->convert_job || this->mip_job || (this->stream_job && this->stream_job->queue.pending());
     }
+    bool load_finished() const override { return !this->convert_job && !this->stream_job && !this->mip_job; }
     bool toggle_mipmaps() override;
     Vec2f image_size() const override;
 

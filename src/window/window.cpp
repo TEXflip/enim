@@ -160,15 +160,20 @@ void Window::poll_events() {
     SetWindowSubclass(hwnd, SubclassProc, 1, reinterpret_cast<DWORD_PTR>(this));
 #endif
 
+    const bool exit_token = this->settings.exit_after_load;
     RGFW_event event;
     while (!RGFW_window_shouldClose(this->win)) {
+        if (exit_token && (!this->renderer || this->renderer->load_finished()))
+            break;
         bool loading = this->renderer && this->renderer->loading();
-        RGFW_waitForEvent(loading ? RGFW_eventNoWait : RGFW_eventWaitNext);
+        // --exit-after-load polls: it doesn't rely on the workers' wakeups to notice the end of the load
+        i32 wait_time = loading ? RGFW_eventNoWait : (exit_token ? 10 : RGFW_eventWaitNext);
+        RGFW_waitForEvent(wait_time);
         while (RGFW_window_checkEvent(win, &event))
             this->dispatch_events(event);
         // each redraw lets the renderer advance the load by one step; checked again after waiting, because a worker
         // thread (StreamUpload decoder) wakes the loop when it has queued work
-        if (this->renderer && this->renderer->loading())
+        if (this->renderer && (exit_token || this->renderer->loading()))
             this->request_redraw();
     }
 }

@@ -262,6 +262,16 @@ bool TiledRenderer::loading() const {
     return ring.window.any_of([&](std::size_t tx, std::size_t ty) { return this->refine_due(ring.slot(tx, ty), now); });
 }
 
+bool TiledRenderer::load_finished() const {
+    if (this->builder || !this->current || this->loading())
+        return false;
+    const Ring& ring = *this->current;
+    return ring.window.all_of([&](std::size_t tx, std::size_t ty) {
+        const Slot& slot = ring.slot(tx, ty);
+        return slot.uploaded_pass >= 0 && slot.requested_pass <= slot.uploaded_pass;
+    });
+}
+
 void TiledRenderer::draw_ring(const Ring& ring, const ViewTransform& view) const {
     if (ring.window.empty())
         return;

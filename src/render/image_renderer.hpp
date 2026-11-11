@@ -24,6 +24,10 @@ struct ImageRenderer {
     /// @brief True while the image is still being loaded: the window keeps redrawing, and update() advances the load.
     virtual bool loading() const { return false; }
 
+    /// @brief True once the load is over (done or failed) and the view shows its final texels. Unlike !loading(), stays
+    /// false while a worker thread is still decoding with nothing queued yet (--exit-after-load waits for it).
+    virtual bool load_finished() const { return !this->loading(); }
+
     /// @brief Switches mipmapped minification on or off (fast mode only).
     /// @return True if the renderer supports mipmaps and a redraw is needed.
     virtual bool toggle_mipmaps() { return false; }

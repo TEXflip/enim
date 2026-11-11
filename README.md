@@ -64,3 +64,5 @@ The format is detected from the file's signature, not its extension. Uncompresse
 ```sh
 uv run tests/images/generate.py           # add --force to regenerate existing files
 ```
+
+`ctest --test-dir bin` then loads each of them with `enim --exit-after-load` in every mode (default, normal, GPU convert, stream upload) and checks that it loads cleanly, or reports an error for the truncated and unsupported ones. CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) does the same on Linux, Windows and macOS, with software OpenGL (the runners have no GPU).

@@ -1,6 +1,9 @@
 # Enim
 
-Visualize enormous images in a small executable
+Visualize enormous images, fast
+
+> [!WARNING]
+> Project in alpha version
 
 ## Quick Start
 

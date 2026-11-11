@@ -84,7 +84,7 @@ jobs:
         run: |
           gh release download --repo pal1000/mesa-dist-win --pattern "*-release-msvc.7z" --dir "$env:RUNNER_TEMP\mesa"
           7z x (Get-ChildItem "$env:RUNNER_TEMP\mesa\*.7z").FullName -o"$env:RUNNER_TEMP\mesa\out" | Out-Null
-          Copy-Item "$env:RUNNER_TEMP\mesa\out\x64\*.dll" build\
+          Copy-Item "$env:RUNNER_TEMP\mesa\out\x64\*.dll" build\ -PassThru | Select-Object -ExpandProperty Name
 
       - name: Test
         env:

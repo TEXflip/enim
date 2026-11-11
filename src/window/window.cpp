@@ -29,6 +29,43 @@ namespace enim {
 LRESULT CALLBACK SubclassProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR ref);
 #endif
 
+namespace {
+
+std::string gl_string(GLenum name) {
+    const char* s = reinterpret_cast<const char*>(glGetString(name));
+    return s ? s : "?";
+}
+
+/// @brief Loads the GL functions of the current context and checks that it is OpenGL 3.3+.
+/// RGFW silently falls back to a legacy context when it can't create a 3.3 core one (e.g. Windows' GDI OpenGL 1.1):
+/// the GL 3 entry points would then be null and the first call would crash.
+std::expected<void, enim::Error> load_gl() {
+    if (!gladLoadGLLoader((GLADloadproc)RGFW_getProcAddress_OpenGL))
+        return std::unexpected(enim::Error{enim::ErrorCode::WindowCreationError, "Failed to initialize GLAD"});
+
+    const std::string info = "OpenGL " + gl_string(GL_VERSION) + ", " + gl_string(GL_RENDERER) + " (" + gl_string(GL_VENDOR) + ")";
+    if (!GLAD_GL_VERSION_3_3)
+        return std::unexpected(enim::Error{enim::ErrorCode::WindowCreationError, "OpenGL 3.3 is required, got " + info});
+    PLOG_INFO << info;
+    return {};
+}
+
+/// @brief Routes the driver's debug messages to the log (KHR_debug, else ARB_debug_output).
+void enable_gl_debug_output() {
+    if (GLAD_GL_KHR_debug) {
+        glEnable(GL_DEBUG_OUTPUT);
+        glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
+        glDebugMessageCallback(onGLDebug, NULL);
+    } else if (GLAD_GL_ARB_debug_output) {
+        glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS_ARB);
+        glDebugMessageCallbackARB(onGLDebugARB, NULL);
+    } else {
+        PLOG_WARNING << "No debug output available; use GL_CHECK() with glGetError";
+    }
+}
+
+} // namespace
+
 Window::Window(enim::Settings& settings) : win(nullptr), settings(settings) {}
 
 Window::~Window() {
@@ -63,20 +100,10 @@ std::expected<void, enim::Error> Window::setup() {
 
     RGFW_window_makeCurrentContext_OpenGL(this->win);
 
-    if (!gladLoadGLLoader((GLADloadproc)RGFW_getProcAddress_OpenGL)) {
-        return std::unexpected(enim::Error{enim::ErrorCode::WindowCreationError, "Failed to initialize GLAD"});
-    }
-
-    if (GLAD_GL_KHR_debug) {
-        glEnable(GL_DEBUG_OUTPUT);
-        glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS);
-        glDebugMessageCallback(onGLDebug, NULL);
-    } else if (GLAD_GL_ARB_debug_output) {
-        glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS_ARB);
-        glDebugMessageCallbackARB(onGLDebugARB, NULL);
-    } else {
-        PLOG_WARNING << "No debug output available; use GL_CHECK() with glGetError";
-    }
+    auto gl_result = load_gl();
+    if (!gl_result)
+        return gl_result;
+    enable_gl_debug_output();
 
     return std::expected<void, enim::Error>{};
 }

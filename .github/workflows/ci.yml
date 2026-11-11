@@ -45,6 +45,15 @@ jobs:
           LIBGL_ALWAYS_SOFTWARE: "1"
         run: xvfb-run -a -s "-screen 0 1920x1080x24" ctest --test-dir build --output-on-failure -j "$(nproc)"
 
+      # tar keeps the executable bit, which upload-artifact's zip would drop
+      - name: Package
+        run: tar -czf enim-linux-x86_64.tar.gz -C build enim
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: enim-linux
+          path: enim-linux-x86_64.tar.gz
+
   windows:
     runs-on: windows-latest
     defaults:
@@ -92,6 +101,17 @@ jobs:
           GALLIUM_DRIVER: llvmpipe
         run: ctest --test-dir build --output-on-failure -j "$(nproc)"
 
+      # the released exe must not need MSYS2's DLLs (e.g. libwinpthread-1.dll), which users don't have
+      - name: Package
+        run: |
+          if ldd build/enim.exe | grep -i ucrt64; then echo "enim.exe depends on MSYS2 DLLs"; exit 1; fi
+          cd build && 7z a ../enim-windows-x86_64.zip enim.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: enim-windows
+          path: enim-windows-x86_64.zip
+
   macos:
     runs-on: macos-latest
     steps:
@@ -118,3 +138,44 @@ jobs:
       # macOS runners are VMs without a GPU: Apple's software OpenGL renderer is used
       - name: Test
         run: ctest --test-dir build --output-on-failure -j "$(sysctl -n hw.ncpu)"
+
+      - name: Package
+        run: tar -czf enim-macos-arm64.tar.gz -C build enim
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: enim-macos
+          path: enim-macos-arm64.tar.gz
+
+  # Rolling "latest" pre-release: on every push to main the "latest" tag is moved to the pushed commit and the
+  # release's binaries are replaced. Download links stay fixed: .../releases/download/latest/<asset>
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [linux, windows, macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    concurrency:
+      group: release-latest
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git tag -f latest "$GITHUB_SHA"
+          git push -f origin refs/tags/latest
+          notes="Built from $GITHUB_SHA"
+          if gh release view latest >/dev/null 2>&1; then
+            gh release edit latest --prerelease --title "latest" --notes "$notes"
+          else
+            gh release create latest --prerelease --title "latest" --notes "$notes" --verify-tag
+          fi
+          gh release upload latest dist/* --clobber

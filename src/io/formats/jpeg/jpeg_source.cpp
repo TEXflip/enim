@@ -71,10 +71,6 @@ struct Decompressor {
     Decompressor& operator=(const Decompressor&) = delete;
 };
 
-enim::Error jpeg_error(const char* message) {
-    return enim::Error{enim::ErrorCode::FileOpenError, std::string("JPEG: ") + message};
-}
-
 /// @brief Creates the decompressor, reads the header and chooses the output color space.
 /// Returns nullptr, or the reason the image is not supported. Must be called after the setjmp.
 const char* start(Decompressor& d, const mio::mmap_source& map) {
@@ -105,15 +101,15 @@ std::expected<void, enim::Error> JpegSource::open(const std::filesystem::path& p
     std::error_code ec;
     this->map.map(path.string(), ec);
     if (ec)
-        return std::unexpected(enim::Error{enim::ErrorCode::FileOpenError, ec.message()});
+        return make_error(FileOpenError, ec.message());
     if (this->map.size() > ULONG_MAX) // jpeg_mem_src takes an unsigned long, 32-bit on Windows
-        return std::unexpected(jpeg_error("file too large"));
+        return make_error(UnsupportedFormatError, "JPEG: file too large");
 
     Decompressor d;
     if (setjmp(d.err.jump))
-        return std::unexpected(jpeg_error(d.err.message));
+        return make_error(CorruptImageError, std::string("JPEG: ") + d.err.message);
     if (const char* unsupported = start(d, this->map))
-        return std::unexpected(jpeg_error(unsupported));
+        return make_error(UnsupportedFormatError, std::string("JPEG: ") + unsupported);
 
     // jpeg_read_header() stops right after the first SOS segment
     this->header_size = static_cast<std::size_t>(d.cinfo.src->next_input_byte - reinterpret_cast<const JOCTET*>(this->map.data()));
@@ -145,9 +141,9 @@ std::expected<void, enim::Error> JpegSource::decode(RowSink& sink, std::stop_tok
     const std::size_t height = this->image_info.height;
     const std::size_t stride = this->image_info.layout.stride;
 
-    auto fail = [&](enim::Error error) -> std::expected<void, enim::Error> {
-        sink.on_done(std::unexpected(error));
-        return std::unexpected(error);
+    auto fail = [&](std::unexpected<enim::Error> error) -> std::expected<void, enim::Error> {
+        sink.on_done(error);
+        return error;
     };
 
     Decompressor d;
@@ -165,27 +161,27 @@ std::expected<void, enim::Error> JpegSource::decode(RowSink& sink, std::stop_tok
         // keep the complete rows of this chunk
         if (rows_done > 0)
             sink.on_rows(y0, rows_done, chunk.data(), stride);
-        return fail(jpeg_error(d.err.message));
+        return fail(make_error(CorruptImageError, std::string("JPEG: ") + d.err.message));
     }
     if (const char* unsupported = start(d, this->map))
-        return fail(jpeg_error(unsupported));
+        return fail(make_error(UnsupportedFormatError, std::string("JPEG: ") + unsupported));
     if (d.cinfo.output_width != this->image_info.width || d.cinfo.output_height != height
         || static_cast<std::size_t>(d.cinfo.output_components) != this->image_info.layout.channels)
-        return fail(jpeg_error("header changed since open()"));
+        return fail(make_error(ImageLoadError, "JPEG: header changed since open()"));
 
     // multi-scan (progressive) files are read whole here, the rows are produced afterwards
     jpeg_start_decompress(&d.cinfo);
 
     for (std::size_t y = 0; y < height; y += kRowsPerChunk) {
         if (stop.stop_requested())
-            return fail(enim::Error{enim::ErrorCode::ImageLoadError, "decode cancelled"});
+            return fail(make_error(DecodeCancelled, "decode cancelled"));
 
         y0 = y;
         const std::size_t rows = std::min(kRowsPerChunk, height - y);
         for (std::size_t done = 0; done < rows;) {
             JDIMENSION read = jpeg_read_scanlines(&d.cinfo, row_pointers.data() + done, static_cast<JDIMENSION>(rows - done));
             if (read == 0) // only a suspending data source returns 0, and jpeg_mem_src never suspends
-                return fail(jpeg_error("no rows decoded"));
+                return fail(make_error(CorruptImageError, "JPEG: no rows decoded"));
             done += read;
             rows_done = done;
         }
@@ -196,7 +192,7 @@ std::expected<void, enim::Error> JpegSource::decode(RowSink& sink, std::stop_tok
     // jpeg_finish_decompress is not called: it only reads the markers after the image data, and a missing end
     // marker would make it fail although every row is there. The destructor releases the decompressor.
     if (d.err.truncated)
-        return fail(jpeg_error("premature end of data, the image is incomplete"));
+        return fail(make_error(CorruptImageError, "JPEG: premature end of data, the image is incomplete"));
 
     sink.on_done({});
     return {};

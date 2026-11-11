@@ -19,8 +19,6 @@ constexpr std::uint8_t kOpRgb = 0xFE;
 constexpr std::uint8_t kOpRgba = 0xFF;
 constexpr std::uint8_t kMask2 = 0xC0;
 
-enim::Error qoi_error(const char* message) { return enim::Error{enim::ErrorCode::FileOpenError, message}; }
-
 std::uint32_t read_be32(const std::uint8_t* p) {
     return (std::uint32_t{p[0]} << 24) | (std::uint32_t{p[1]} << 16) | (std::uint32_t{p[2]} << 8) | std::uint32_t{p[3]};
 }
@@ -39,21 +37,21 @@ std::expected<void, enim::Error> QoiSource::open(const std::filesystem::path& pa
     std::error_code ec;
     this->map.map(path.string(), ec);
     if (ec)
-        return std::unexpected(enim::Error{enim::ErrorCode::FileOpenError, ec.message()});
+        return make_error(FileOpenError, ec.message());
     if (this->map.size() < kHeaderSize + kEndMarkerSize)
-        return std::unexpected(qoi_error("QOI file too small"));
+        return make_error(CorruptImageError, "QOI file too small");
 
     const auto* data = reinterpret_cast<const std::uint8_t*>(this->map.data());
     if (std::memcmp(data, "qoif", 4) != 0)
-        return std::unexpected(qoi_error("Invalid QOI signature"));
+        return make_error(CorruptImageError, "Invalid QOI signature");
 
     std::uint32_t width = read_be32(data + 4);
     std::uint32_t height = read_be32(data + 8);
     std::uint8_t channels = data[12];
     if (width == 0 || height == 0 || std::uint64_t{width} * height > kMaxPixels)
-        return std::unexpected(qoi_error("Invalid QOI dimensions"));
+        return make_error(CorruptImageError, "Invalid QOI dimensions");
     if (channels != 3 && channels != 4)
-        return std::unexpected(qoi_error("Invalid QOI channel count"));
+        return make_error(CorruptImageError, "Invalid QOI channel count");
     // data[13] is the colorspace (sRGB with linear alpha, or all linear): informative only
 
     this->image_info.width = width;
@@ -93,14 +91,14 @@ std::expected<void, enim::Error> QoiSource::decode(RowSink& sink, std::stop_toke
     Rgba px;
     std::size_t run = 0;
 
-    auto fail = [&](enim::Error error) -> std::expected<void, enim::Error> {
-        sink.on_done(std::unexpected(error));
-        return std::unexpected(error);
+    auto fail = [&](std::unexpected<enim::Error> error) -> std::expected<void, enim::Error> {
+        sink.on_done(error);
+        return error;
     };
 
     for (std::size_t y0 = 0; y0 < height; y0 += kRowsPerChunk) {
         if (stop.stop_requested())
-            return fail(enim::Error{enim::ErrorCode::ImageLoadError, "decode cancelled"});
+            return fail(make_error(DecodeCancelled, "decode cancelled"));
 
         const std::size_t rows = std::min(kRowsPerChunk, height - y0);
         std::uint8_t* out = chunk.data();
@@ -114,7 +112,7 @@ std::expected<void, enim::Error> QoiSource::decode(RowSink& sink, std::stop_toke
                     // keep the complete rows of this chunk
                     if (std::size_t complete = static_cast<std::size_t>(out - chunk.data()) / stride; complete > 0)
                         sink.on_rows(y0, complete, chunk.data(), stride);
-                    return fail(qoi_error("QOI data is truncated"));
+                    return fail(make_error(CorruptImageError, "QOI data is truncated"));
                 }
                 const std::uint8_t b1 = *p++;
                 if (b1 == kOpRgb) {

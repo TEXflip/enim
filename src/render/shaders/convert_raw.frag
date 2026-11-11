@@ -11,7 +11,7 @@ uniform int band_first_row;
 
 out vec4 FragColor;
 
-uint pixel_addr;
+uint pixel_addr = 0u;
 
 float source_channel(int c) {
     return read_sample(pixel_addr + uint(c) * sample_bytes(sample_type), sample_type, big_endian);

@@ -13,8 +13,6 @@
 
 namespace {
 
-enim::Error store_error(const std::string& message) { return enim::Error{enim::ErrorCode::ImageLoadError, "Pyramid cache: " + message}; }
-
 /// @brief True if the file at path is a complete pyramid of this geometry.
 bool is_complete_match(const std::filesystem::path& path, const enim::PyramidGeometry& geom) {
     std::error_code ec;
@@ -37,7 +35,7 @@ std::expected<void, enim::Error> create_file(const std::filesystem::path& path, 
     {
         std::ofstream file(path, std::ios::binary | std::ios::trunc);
         if (!file)
-            return std::unexpected(store_error("can't create " + path.string()));
+            return enim::make_error(enim::PyramidCacheError, "Pyramid cache: can't create " + path.string());
     }
 #ifdef ENIM_OS_WIN
     HANDLE handle = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE, 0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
@@ -50,7 +48,7 @@ std::expected<void, enim::Error> create_file(const std::filesystem::path& path, 
 #endif
     std::filesystem::resize_file(path, size, ec);
     if (ec)
-        return std::unexpected(store_error("can't allocate " + std::to_string(size >> 20) + " MiB: " + ec.message()));
+        return enim::make_error(enim::PyramidCacheError, "Pyramid cache: can't allocate " + std::to_string(size >> 20) + " MiB: " + ec.message());
     return {};
 }
 
@@ -71,14 +69,14 @@ std::expected<std::unique_ptr<PyramidStore>, enim::Error> PyramidStore::open_or_
         std::error_code ec;
         std::filesystem::create_directories(path.parent_path(), ec);
         if (ec)
-            return std::unexpected(store_error("can't create " + path.parent_path().string() + ": " + ec.message()));
+            return make_error(PyramidCacheError, "Pyramid cache: can't create " + path.parent_path().string() + ": " + ec.message());
 
         std::uint64_t old_size = std::filesystem::exists(path, ec) ? std::filesystem::file_size(path, ec) : 0;
         std::filesystem::space_info space = std::filesystem::space(path.parent_path(), ec);
         if (!ec && space.available + old_size < store->geom.file_size)
-            return std::unexpected(store_error("not enough disk space in " + path.parent_path().string() + ": " +
-                                               std::to_string(store->geom.file_size >> 20) + " MiB needed, " +
-                                               std::to_string(space.available >> 20) + " MiB available"));
+            return make_error(PyramidCacheError, "Pyramid cache: not enough disk space in " + path.parent_path().string() + ": " +
+                                                 std::to_string(store->geom.file_size >> 20) + " MiB needed, " +
+                                                 std::to_string(space.available >> 20) + " MiB available");
 
         if (auto created = create_file(path, store->geom.file_size); !created)
             return std::unexpected(created.error());
@@ -87,7 +85,7 @@ std::expected<std::unique_ptr<PyramidStore>, enim::Error> PyramidStore::open_or_
     std::error_code ec;
     store->map.map(path.native(), ec);
     if (ec)
-        return std::unexpected(store_error("can't map " + path.string() + ": " + ec.message()));
+        return make_error(PyramidCacheError, "Pyramid cache: can't map " + path.string() + ": " + ec.message());
 
     if (complete) {
         store->mark_all_ready();
@@ -122,13 +120,13 @@ std::expected<void, enim::Error> PyramidStore::finish() {
     std::error_code ec;
     this->map.sync(ec);
     if (ec)
-        return std::unexpected(store_error("flush failed: " + ec.message()));
+        return make_error(PyramidCacheError, "Pyramid cache: flush failed: " + ec.message());
     PyramidHeader header = this->geom.header();
     header.complete = 1;
     std::memcpy(this->base(), &header, sizeof(header));
     this->map.sync(ec);
     if (ec)
-        return std::unexpected(store_error("flush failed: " + ec.message()));
+        return make_error(PyramidCacheError, "Pyramid cache: flush failed: " + ec.message());
     this->is_complete.store(true, std::memory_order_release);
     this->progress_count.fetch_add(1, std::memory_order_release);
     return {};

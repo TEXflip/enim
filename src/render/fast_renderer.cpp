@@ -31,8 +31,7 @@ std::expected<void, enim::Error> FastRenderer::init() {
     case FastStrategy::StreamUpload:
         return this->start_stream_upload();
     default:
-        return std::unexpected(enim::Error{enim::ErrorCode::ImageLoadError,
-                                           std::string("Fast mode strategy not implemented yet: ") + to_string(this->plan.fast)});
+        return make_error(ImageLoadError, std::string("Fast mode strategy not implemented yet: ") + to_string(this->plan.fast));
     }
 }
 
@@ -40,11 +39,11 @@ std::expected<void, enim::Error> FastRenderer::upload_direct() {
     const ImageInfo& info = this->source->info();
     auto params = direct_upload_params(info.layout, info.width, this->plan.texture, this->plan.display);
     if (!params)
-        return std::unexpected(enim::Error{enim::ErrorCode::ImageLoadError, "Image layout can't be uploaded directly"});
+        return make_error(ImageLoadError, "Image layout can't be uploaded directly");
 
     std::span<const std::uint8_t> pixels = this->source->mapped_pixels();
     if (pixels.empty())
-        return std::unexpected(enim::Error{enim::ErrorCode::ImageLoadError, "Failed to get image buffer"});
+        return make_error(ImageLoadError, "Failed to get image buffer");
 
     PLOG_INFO << "Image size (WxH): " << info.width << "x" << info.height << ", "
               << static_cast<int>(info.layout.channels) << " stored / " << static_cast<int>(this->plan.texture.channels) << " displayed channels";
@@ -66,7 +65,7 @@ std::expected<void, enim::Error> FastRenderer::upload_direct() {
     glPixelStorei(GL_UNPACK_SWAP_BYTES, GL_FALSE);
 
     if (GLenum err = glGetError(); err != GL_NO_ERROR)
-        return std::unexpected(enim::Error{enim::ErrorCode::ImageLoadError, "glTexSubImage2D failed with GL error " + std::to_string(err)});
+        return make_error(GLError, "glTexSubImage2D failed with GL error " + std::to_string(err));
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
     PLOG_INFO << "Direct upload done in " << elapsed.count() << " ms";
 
@@ -148,12 +147,12 @@ std::expected<void, enim::Error> FastRenderer::start_gpu_convert() {
     const PixelLayout& layout = info.layout;
 
     if (this->source->mapped_pixels().empty())
-        return std::unexpected(enim::Error{enim::ErrorCode::ImageLoadError, "Failed to get image buffer"});
+        return make_error(ImageLoadError, "Failed to get image buffer");
 
     auto job = std::make_unique<GpuConvertJob>();
     job->rows_per_band = std::min(this->plan.band_bytes / layout.stride, info.height);
     if (job->rows_per_band == 0)
-        return std::unexpected(enim::Error{enim::ErrorCode::ImageLoadError, "A single image row exceeds the GPU convert staging buffer"});
+        return make_error(ImageLoadError, "A single image row exceeds the GPU convert staging buffer");
 
     Vec2i size{static_cast<std::int32_t>(info.width), static_cast<std::int32_t>(info.height)};
     auto pass_result = job->pass.init_raw(this->plan.texture, size, this->plan.display);

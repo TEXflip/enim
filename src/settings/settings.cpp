@@ -8,13 +8,17 @@
 
 #include <settings/settings.hpp>
 
+#include "../errors.hpp"
+
 namespace {
+
+[[noreturn]] void exit_invalid_arguments() { std::exit(static_cast<int>(enim::ErrorCode::InvalidArguments)); }
 
 void set_fast_mode_max_bytes(enim::Settings& settings, const char* value, const char* origin) {
     auto size = enim::parse_size(value);
     if (!size) {
         std::fprintf(stderr, "Invalid memory size '%s' in %s (expected e.g. 512M, 2G)\n", value, origin);
-        std::exit(1);
+        exit_invalid_arguments();
     }
     settings.fast_mode_max_bytes = *size;
 }
@@ -105,13 +109,13 @@ Settings parse_args(int argc, char* argv[]) {
         } else if (std::strcmp(argv[i], "--fast-max-mem") == 0) {
             if (i + 1 >= argc) {
                 std::fprintf(stderr, "--fast-max-mem needs a value\n");
-                std::exit(1);
+                exit_invalid_arguments();
             }
             set_fast_mode_max_bytes(settings, argv[++i], "--fast-max-mem");
         } else if (std::strcmp(argv[i], "--cache-dir") == 0) {
             if (i + 1 >= argc) {
                 std::fprintf(stderr, "--cache-dir needs a value\n");
-                std::exit(1);
+                exit_invalid_arguments();
             }
             settings.cache_dir = argv[++i];
         } else {

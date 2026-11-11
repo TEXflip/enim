@@ -48,15 +48,16 @@ int main(int argc, char* argv[]) {
     if (!result) {
         const auto& error = result.error();
         PLOG_ERROR << error.message;
-        std::exit(static_cast<int>(error.code));
+        return static_cast<int>(error.code);
     }
-    
+
     auto img_load_result = window.load_image();
     if (!img_load_result)
         PLOG_ERROR << img_load_result.error().message;
     window.run();
 
+    // errors logged by any thread, including the loading ones: the log tells which
     if (settings.exit_after_load && enim::error_counter().count() > 0)
-        return 1;
+        return static_cast<int>(enim::ErrorCode::ErrorLogged);
     return 0;
 }

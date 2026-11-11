@@ -20,7 +20,7 @@ std::expected<void, enim::Error> Framebuffer::attach(const Texture& texture, GLi
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     if (status != GL_FRAMEBUFFER_COMPLETE)
-        return std::unexpected(enim::Error{enim::ErrorCode::ImageLoadError, "Framebuffer incomplete, status " + std::to_string(status)});
+        return make_error(FramebufferError, "Framebuffer incomplete, status " + std::to_string(status));
     return {};
 }
 

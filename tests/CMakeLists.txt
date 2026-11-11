@@ -1,5 +1,6 @@
 # Image tests: enim loads each image written by tests/images/generate.py with --exit-after-load and must exit cleanly,
-# or with a load error for the broken/unsupported ones. They need a display and OpenGL 3.3 (CI: Mesa llvmpipe).
+# or with ErrorLogged (exit code 1) for the broken/unsupported ones: the log says which error. They need a display and
+# OpenGL 3.3 (CI: Mesa llvmpipe).
 #   ctest --test-dir bin -L bmp            # one format; -L normal for one mode
 
 set(ENIM_TEST_IMAGES_DIR "${CMAKE_CURRENT_SOURCE_DIR}/images/out" CACHE PATH "Images written by tests/images/generate.py")
@@ -42,7 +43,7 @@ set(error_images
 # mode: label of the test, args: enim options separated by |
 function(enim_image_test image mode args)
     if (image IN_LIST error_images)
-        set(expect error)
+        set(expect ErrorLogged)
     else()
         set(expect ok)
     endif()

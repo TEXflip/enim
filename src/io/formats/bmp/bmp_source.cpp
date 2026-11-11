@@ -13,8 +13,6 @@ constexpr std::uint32_t kBiAlphaBitfields = 6;
 constexpr std::size_t kFileHeaderSize = 14;
 constexpr std::size_t kRowsPerChunk = 256;
 
-enim::Error bmp_error(const char* message) { return enim::Error{enim::ErrorCode::FileOpenError, message}; }
-
 } // namespace
 
 namespace enim {
@@ -23,20 +21,20 @@ std::expected<void, enim::Error> BmpSource::open(const std::filesystem::path& pa
     std::error_code ec;
     this->map.map(path.string(), ec);
     if (ec)
-        return std::unexpected(enim::Error{enim::ErrorCode::FileOpenError, ec.message()});
+        return make_error(FileOpenError, ec.message());
     if (this->map.size() < sizeof(BmpHeader))
-        return std::unexpected(bmp_error("BMP file too small"));
+        return make_error(CorruptImageError, "BMP file too small");
 
     std::memcpy(&this->header, this->map.data(), sizeof(BmpHeader));
 
     if (header.signature[0] != 'B' || header.signature[1] != 'M')
-        return std::unexpected(bmp_error("Invalid BMP signature"));
+        return make_error(CorruptImageError, "Invalid BMP signature");
     if (header.dib_header_size < 40)
-        return std::unexpected(bmp_error("Unsupported BMP header (OS/2 BITMAPCOREHEADER)"));
+        return make_error(UnsupportedFormatError, "Unsupported BMP header (OS/2 BITMAPCOREHEADER)");
     if (header.width <= 0 || header.height == 0)
-        return std::unexpected(bmp_error("Invalid BMP dimensions"));
+        return make_error(CorruptImageError, "Invalid BMP dimensions");
     if (header.bits_per_pixel != 24 && header.bits_per_pixel != 32)
-        return std::unexpected(bmp_error("Only 24-bit and 32-bit BMPs are supported"));
+        return make_error(UnsupportedFormatError, "Only 24-bit and 32-bit BMPs are supported");
 
     std::size_t width = static_cast<std::size_t>(header.width);
     std::size_t height = static_cast<std::size_t>(std::abs(static_cast<std::int64_t>(header.height)));
@@ -57,7 +55,7 @@ std::expected<void, enim::Error> BmpSource::open(const std::filesystem::path& pa
 
     if (header.file_offset_to_pixel_array > this->map.size() ||
         this->map.size() - header.file_offset_to_pixel_array < layout.stride * height)
-        return std::unexpected(bmp_error("BMP pixel data is truncated"));
+        return make_error(CorruptImageError, "BMP pixel data is truncated");
 
     return {};
 }
@@ -75,13 +73,13 @@ std::expected<void, enim::Error> BmpSource::read_channel_roles() {
     }
 
     if ((header.compression_method != kBiBitfields && header.compression_method != kBiAlphaBitfields) || header.bits_per_pixel != 32)
-        return std::unexpected(bmp_error("Compressed BMPs are not supported"));
+        return make_error(UnsupportedFormatError, "Compressed BMPs are not supported");
 
     // masks are inside V2+ headers, or follow a 40-byte header
     std::size_t mask_count = header.compression_method == kBiAlphaBitfields || header.dib_header_size >= 56 ? 4 : 3;
     std::size_t masks_offset = kFileHeaderSize + 40;
     if (this->map.size() < masks_offset + mask_count * 4)
-        return std::unexpected(bmp_error("BMP bitfield masks are truncated"));
+        return make_error(CorruptImageError, "BMP bitfield masks are truncated");
 
     std::array<std::uint32_t, 4> masks{};
     std::memcpy(masks.data(), this->map.data() + masks_offset, mask_count * 4);
@@ -101,7 +99,7 @@ std::expected<void, enim::Error> BmpSource::read_channel_roles() {
             }
         }
         if (!found)
-            return std::unexpected(bmp_error("Only byte-aligned 8-bit BMP bitfield masks are supported"));
+            return make_error(UnsupportedFormatError, "Only byte-aligned 8-bit BMP bitfield masks are supported");
     }
     return {};
 }
@@ -127,9 +125,9 @@ std::expected<void, enim::Error> BmpSource::decode(RowSink& sink, std::stop_toke
 
     for (std::size_t y0 = 0; y0 < height; y0 += kRowsPerChunk) {
         if (stop.stop_requested()) {
-            enim::Error error{enim::ErrorCode::ImageLoadError, "decode cancelled"};
-            sink.on_done(std::unexpected(error));
-            return std::unexpected(error);
+            auto error = make_error(DecodeCancelled, "decode cancelled");
+            sink.on_done(error);
+            return error;
         }
         std::size_t count = std::min(kRowsPerChunk, height - y0);
         sink.on_rows(y0, count, pixels.data() + y0 * stride, stride);

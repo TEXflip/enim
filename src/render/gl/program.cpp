@@ -26,7 +26,7 @@ std::expected<GLuint, enim::Error> compile_shader(std::initializer_list<const ch
     if (!ec) {
         std::string msg = gl_get_infolog_message(glGetShaderInfoLog, shader);
         glDeleteShader(shader);
-        return std::unexpected(enim::Error{enim::ErrorCode::ShaderCompileError, "could not compile shader: " + msg});
+        return make_error(ShaderCompileError, "could not compile shader: " + msg);
     }
 
     return shader;
@@ -55,7 +55,7 @@ std::expected<GLuint, enim::Error> link_program(std::initializer_list<const char
     if (!ec) {
         std::string msg = gl_get_infolog_message(glGetProgramInfoLog, program);
         glDeleteProgram(program);
-        return std::unexpected(enim::Error{enim::ErrorCode::ShaderLinkError, "could not link program: " + msg});
+        return make_error(ShaderLinkError, "could not link program: " + msg);
     }
 
     return program;

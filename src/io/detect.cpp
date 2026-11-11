@@ -27,11 +27,9 @@ const std::unordered_map<std::string_view, SourceFactory> SOURCE_MAP{
 namespace enim {
 
 std::expected<FileFormat, enim::Error> detect_format(const std::filesystem::path& path) {
-    constexpr enim::ErrorCode default_error = enim::ErrorCode::FileOpenError;
-
     std::ifstream file(path, std::ios::binary);
     if (!file) {
-        return std::unexpected(enim::Error{default_error, "Couldn't open file"});
+        return make_error(FileOpenError, "Couldn't open file");
     }
 
     std::array<std::uint8_t, kMaxSignatureReadSize> signature_buffer{};
@@ -39,7 +37,7 @@ std::expected<FileFormat, enim::Error> detect_format(const std::filesystem::path
 
     const std::streamsize bytes_read = file.gcount();
     if (bytes_read <= 0) {
-        return std::unexpected(enim::Error{default_error, "Empty or unreadable file"});
+        return make_error(FileOpenError, "Empty or unreadable file");
     }
     const std::size_t available = static_cast<std::size_t>(bytes_read);
 
@@ -55,7 +53,7 @@ std::expected<FileFormat, enim::Error> detect_format(const std::filesystem::path
         }
     }
 
-    return std::unexpected(enim::Error{default_error, "Unknown image format"});
+    return make_error(UnknownFormatError, "Unknown image format");
 }
 
 std::expected<std::unique_ptr<ImageSource>, enim::Error> open_source(const std::filesystem::path& path) {
@@ -68,7 +66,7 @@ std::expected<std::unique_ptr<ImageSource>, enim::Error> open_source(const std::
 
     auto factory_it = SOURCE_MAP.find(format.name);
     if (factory_it == SOURCE_MAP.end())
-        return std::unexpected(enim::Error{enim::ErrorCode::FileOpenError, std::string(format.name) + " Format not supported"});
+        return make_error(UnsupportedFormatError, std::string(format.name) + " Format not supported");
 
     std::unique_ptr<ImageSource> source = factory_it->second();
 

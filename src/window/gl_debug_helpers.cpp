@@ -45,8 +45,10 @@ void APIENTRY onGLDebug(GLenum source, GLenum type, GLuint id, GLenum severity, 
     (void)length;
     (void)user;
 
-    PLOG_DEBUG << "GL [" << (type == GL_DEBUG_TYPE_ERROR ? "ERROR" : "info") << "] type=0x" << std::hex << type << " id=" << std::dec << id << " sev=0x" << std::hex << severity << ": " << msg;
-    if (type == GL_DEBUG_TYPE_ERROR || severity == GL_DEBUG_SEVERITY_HIGH) {
+    const bool fatal = type == GL_DEBUG_TYPE_ERROR || severity == GL_DEBUG_SEVERITY_HIGH;
+    // fatal messages are logged as errors, so release builds show why enim aborts
+    PLOG(fatal ? plog::error : plog::debug) << "GL [" << (type == GL_DEBUG_TYPE_ERROR ? "ERROR" : "info") << "] type=0x" << std::hex << type << " id=" << std::dec << id << " sev=0x" << std::hex << severity << ": " << msg;
+    if (fatal) {
         std::abort();
     }
 }
@@ -55,9 +57,10 @@ void APIENTRY onGLDebugARB(GLenum source, GLenum type, GLuint id, GLenum severit
     (void)length;
     (void)userParam;
 
-    PLOG_DEBUG << "GL [" << sourceToStr(source) << "] [" << typeToStr(type) << "] [" << severityToStr(severity) << "] id=" << id << ": " << message;
+    const bool fatal = type == GL_DEBUG_TYPE_ERROR_ARB || severity == GL_DEBUG_SEVERITY_HIGH_ARB;
+    PLOG(fatal ? plog::error : plog::debug) << "GL [" << sourceToStr(source) << "] [" << typeToStr(type) << "] [" << severityToStr(severity) << "] id=" << id << ": " << message;
 
-    if (type == GL_DEBUG_TYPE_ERROR_ARB || severity == GL_DEBUG_SEVERITY_HIGH_ARB) {
+    if (fatal) {
         std::abort();
     }
 }

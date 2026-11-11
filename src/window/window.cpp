@@ -41,11 +41,11 @@ std::string gl_string(GLenum name) {
 /// the GL 3 entry points would then be null and the first call would crash.
 std::expected<void, enim::Error> load_gl() {
     if (!gladLoadGLLoader((GLADloadproc)RGFW_getProcAddress_OpenGL))
-        return std::unexpected(enim::Error{enim::ErrorCode::WindowCreationError, "Failed to initialize GLAD"});
+        return make_error(GLLoaderError, "Failed to initialize GLAD");
 
     const std::string info = "OpenGL " + gl_string(GL_VERSION) + ", " + gl_string(GL_RENDERER) + " (" + gl_string(GL_VENDOR) + ")";
     if (!GLAD_GL_VERSION_3_3)
-        return std::unexpected(enim::Error{enim::ErrorCode::WindowCreationError, "OpenGL 3.3 is required, got " + info});
+        return make_error(GLVersionError, "OpenGL 3.3 is required, got " + info);
     PLOG_INFO << info;
     return {};
 }
@@ -95,7 +95,7 @@ std::expected<void, enim::Error> Window::setup() {
     RGFW_windowFlags window_flags = RGFW_windowAllowDND | RGFW_windowOpenGL | RGFW_windowCenter;
     this->win = RGFW_createWindow("enim", 0, 0, window_size.x, window_size.y, window_flags);
     if (!this->win) {
-        return std::unexpected(enim::Error{enim::ErrorCode::WindowCreationError, "could not create window"});
+        return make_error(WindowCreationError, "could not create window");
     }
 
     RGFW_window_makeCurrentContext_OpenGL(this->win);
@@ -111,7 +111,7 @@ std::expected<void, enim::Error> Window::setup() {
 
 std::expected<void, enim::Error> Window::load_image() {
     if (this->settings.image_path.empty())
-        return std::unexpected(enim::Error{enim::ErrorCode::ImageLoadError, "image path is empty"});
+        return make_error(FileOpenError, "image path is empty");
     
     auto renderer_result = enim::load(this->settings, enim::query_gpu_limits());
     if (!renderer_result)

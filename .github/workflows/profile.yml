@@ -1,0 +1,200 @@
+name: Profile
+
+# Manual only: Actions tab > Profile > Run workflow.
+# Each job builds enim like ci.yml, generates the test images and runs tests/profile.py, which loads every image in
+# every mode with --profile and aggregates the time of each load section. The tables are shown in the run's summary,
+# and the full log and a CSV of every section are uploaded as artifacts.
+# The runners have no GPU: OpenGL is Mesa llvmpipe (Linux, Windows) or Apple's software renderer (macOS), so GPU-side
+# work (uploads, convert pass, mipmaps) is much slower than on real hardware. Compare runs of the same OS only.
+
+on:
+  workflow_dispatch:
+    inputs:
+      modes:
+        description: "Modes to profile (comma separated)"
+        type: string
+        default: "default,normal-cold,normal-warm,gpu-convert,stream-upload"
+      repeat:
+        description: "Runs per image and mode"
+        type: number
+        default: 1
+      large:
+        description: "Also generate and profile the large images (generate.py --large, ~1.2 GB)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUTF8: "1" # the tables use non-ASCII characters; Windows' default pipe encoding is the ANSI code page
+  MODES: ${{ inputs.modes }}
+  REPEAT: ${{ inputs.repeat }}
+  LARGE: ${{ inputs.large && '--large' || '' }}
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    container: gcc:15 # GCC 15+ for #embed
+    timeout-minutes: 120
+    steps:
+      - name: Install dependencies
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends cmake ninja-build nasm xvfb xauth libgl1-mesa-dri \
+            libglx-dev libx11-dev libxrandr-dev libxi-dev libxinerama-dev libxcursor-dev libxext-dev libgl1-mesa-dev
+
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Generate test images
+        run: uv run tests/images/generate.py $LARGE
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Profile
+        shell: bash
+        env:
+          LIBGL_ALWAYS_SOFTWARE: "1"
+        run: |
+          set -o pipefail
+          xvfb-run -a -s "-screen 0 1920x1080x24" uv run tests/profile.py --enim build/enim --modes "$MODES" \
+            --repeat "$REPEAT" --csv profile-linux.csv --color always | tee profile-linux.log
+
+      - name: Summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo "## Linux (Mesa llvmpipe)"
+            echo '```'
+            uv run python -c 'import re, sys; print(re.sub(r"\x1b\[[0-9;]*m", "", open(sys.argv[1], encoding="utf-8").read()))' profile-linux.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: profile-linux
+          path: profile-linux.*
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: msys2 {0}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          path-type: inherit # keeps uv on the PATH
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-cmake
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-nasm
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Generate test images
+        run: uv run tests/images/generate.py $LARGE
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      # the runner's opengl32.dll is GDI's OpenGL 1.1: Mesa's (latest mesa-dist-win release) next to enim.exe wins
+      - name: Install Mesa llvmpipe
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo pal1000/mesa-dist-win --pattern "*-release-mingw.7z" --dir "$env:RUNNER_TEMP\mesa"
+          7z x (Get-ChildItem "$env:RUNNER_TEMP\mesa\*.7z").FullName -o"$env:RUNNER_TEMP\mesa\out" | Out-Null
+          Copy-Item "$env:RUNNER_TEMP\mesa\out\x64\opengl32.dll", "$env:RUNNER_TEMP\mesa\out\x64\libgallium_wgl.dll" build\ -ErrorAction Stop
+
+      - name: Profile
+        env:
+          GALLIUM_DRIVER: llvmpipe
+        run: |
+          set -o pipefail
+          uv run tests/profile.py --enim build/enim.exe --modes "$MODES" --repeat "$REPEAT" \
+            --csv profile-windows.csv --color always | tee profile-windows.log
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## Windows (Mesa llvmpipe)"
+            echo '```'
+            uv run python -c 'import re, sys; print(re.sub(r"\x1b\[[0-9;]*m", "", open(sys.argv[1], encoding="utf-8").read()))' profile-windows.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: profile-windows
+          path: profile-windows.*
+
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: brew install llvm ninja
+
+      - uses: astral-sh/setup-uv@v6
+
+      - name: Generate test images
+        run: uv run tests/images/generate.py $LARGE
+
+      - name: Configure
+        run: |
+          LLVM=$(brew --prefix llvm)
+          CC=$LLVM/bin/clang CXX=$LLVM/bin/clang++ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      # macOS runners are VMs without a GPU: Apple's software OpenGL renderer is used
+      - name: Profile
+        run: |
+          set -o pipefail
+          uv run tests/profile.py --enim build/enim --modes "$MODES" --repeat "$REPEAT" \
+            --csv profile-macos.csv --color always | tee profile-macos.log
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## macOS (Apple software renderer)"
+            echo '```'
+            uv run python -c 'import re, sys; print(re.sub(r"\x1b\[[0-9;]*m", "", open(sys.argv[1], encoding="utf-8").read()))' profile-macos.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: profile-macos
+          path: profile-macos.*

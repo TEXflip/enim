@@ -5,6 +5,8 @@
 
 #include <plog/Log.h>
 
+#include "../logging.hpp"
+
 namespace {
 
 // destination texels blitted per update() while building mipmaps: ~16 MB written at RGBA8
@@ -68,6 +70,7 @@ std::expected<void, enim::Error> FastRenderer::upload_direct() {
         return make_error(GLError, "glTexSubImage2D failed with GL error " + std::to_string(err));
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
     PLOGI << "Direct upload done in " << elapsed.count() << " ms";
+    PLOG_PROFILE << "direct upload done";
 
     this->apply_mipmaps();
     return {};
@@ -113,6 +116,7 @@ void FastRenderer::upload_stream_bands() {
     glBindTexture(GL_TEXTURE_2D, this->texture.id);
     glPixelStorei(GL_UNPACK_ALIGNMENT, params.alignment);
     std::size_t uploaded_bytes = 0;
+    const bool first_band = job.rows_uploaded == 0;
     while (uploaded_bytes < kStreamUploadBytesPerStep) {
         std::optional<UploadBand> band = job.queue.pop();
         if (!band)
@@ -126,11 +130,14 @@ void FastRenderer::upload_stream_bands() {
 
     if (GLenum err = glGetError(); err != GL_NO_ERROR)
         PLOGE << "GL error " << err << " while uploading decoded rows";
+    if (first_band && job.rows_uploaded > 0)
+        PLOG_PROFILE << "first band uploaded";
 
     std::optional<std::expected<void, enim::Error>> result = job.queue.take_result();
     if (!result)
         return;
 
+    PLOG_PROFILE << "stream upload done";
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - job.start);
     if (*result)
         PLOGI << "Stream upload done in " << elapsed.count() << " ms";
@@ -184,11 +191,14 @@ void FastRenderer::convert_next_band() {
 
     if (GLenum err = glGetError(); err != GL_NO_ERROR)
         PLOGE << "GL error " << err << " in GPU convert band at row " << job.next_row - rows;
+    if (job.next_row == rows)
+        PLOG_PROFILE << "first band uploaded";
 
     if (job.next_row < info.height)
         return;
 
     this->texture = job.pass.finish();
+    PLOG_PROFILE << "gpu convert done";
     this->prepare_mip_builder(); // cheap: the texture already is a render target
     this->apply_mipmaps();
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - job.start);
@@ -213,6 +223,7 @@ void FastRenderer::apply_mipmaps() {
         } else {
             PLOGW << "Texture format can't be blitted, generating mipmaps at once";
             this->texture.generate_mip_chain();
+            PLOG_PROFILE << "mipmaps built";
         }
     }
     this->texture.set_mipmaps(this->mipmaps);
@@ -235,6 +246,7 @@ void FastRenderer::build_next_mip_step() {
 
     if (!done)
         return;
+    PLOG_PROFILE << "mipmaps built";
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - job.start);
     PLOGI << "Mipmaps built: " << this->texture.mip_level_count() << " levels in " << job.steps << " steps, " << elapsed.count() << " ms";
     this->mip_job.reset();

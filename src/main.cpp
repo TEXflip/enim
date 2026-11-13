@@ -35,12 +35,14 @@ void attach_parent_console() {
 #endif
 
 int main(int argc, char* argv[]) {
+    enim::profile_start(); // reference time of PLOG_PROFILE, taken before anything else
 #ifdef ENIM_OS_WIN
     attach_parent_console();
 #endif
     enim::Settings settings = enim::parse_args(argc, argv);
 
     enim::setup_logger(settings);
+    PLOG_PROFILE << "start";
 
     enim::Window window(settings);
 
@@ -50,6 +52,7 @@ int main(int argc, char* argv[]) {
         PLOGE << error.message;
         return static_cast<int>(error.code);
     }
+    PLOG_PROFILE << "window ready";
 
     auto img_load_result = window.load_image();
     if (!img_load_result)

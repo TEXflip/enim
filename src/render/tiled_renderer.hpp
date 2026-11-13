@@ -86,6 +86,7 @@ struct TiledRenderer : public ImageRenderer {
     std::vector<std::uint8_t> zero_tile; // transparent tile, to clear reassigned slots
     std::uint64_t next_generation = 1;
     std::chrono::steady_clock::time_point last_refine;
+    bool any_tile_uploaded = false; // profiling: "first tile uploaded" is logged once
 
     // destroyed first: the sampler and the build thread use the store, the queue and the source
     std::unique_ptr<ViewSampler> sampler;

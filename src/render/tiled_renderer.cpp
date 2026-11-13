@@ -6,6 +6,8 @@
 
 #include <core/cache_dir.hpp>
 
+#include "../logging.hpp"
+
 namespace {
 
 // tiles waiting for the main thread, and uploaded per update()
@@ -211,15 +213,21 @@ void TiledRenderer::upload_tiles() {
         slot.requested_pass = std::max(slot.requested_pass, job.pass);
         slot.complete = tile->complete;
     }
-    if (uploaded_bytes > 0)
+    if (uploaded_bytes > 0) {
         if (GLenum err = glGetError(); err != GL_NO_ERROR)
             PLOGE << "GL error " << err << " while uploading tiles";
+        if (!this->any_tile_uploaded) {
+            this->any_tile_uploaded = true;
+            PLOG_PROFILE << "first tile uploaded";
+        }
+    }
 }
 
 void TiledRenderer::check_build() {
     if (!this->builder || !this->builder->finished())
         return;
     this->build_thread.join();
+    PLOG_PROFILE << "pyramid built";
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - this->build_start);
     const auto& result = this->builder->result();
     if (result && *result)

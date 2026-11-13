@@ -63,3 +63,16 @@ foreach (image IN LISTS bmp_images)
     enim_image_test(${image} gpu-convert "--force-fast-mode|--force-gpu-convert")
     enim_image_test(${image} stream-upload "--force-fast-mode|--force-stream-upload")
 endforeach()
+
+# Profile run (tests/profile.py): loads every image in every mode with --profile and prints the time of each load
+# section, aggregated over all runs. Off by default: it is slow, and ctest's parallel tests would skew its timings.
+#   cmake -B bin -DENIM_PROFILE_TEST=ON && ctest --test-dir bin -L profile -V
+# or directly: uv run tests/profile.py [images or dirs...] [--modes ...] [--repeat N] [--csv out.csv]
+option(ENIM_PROFILE_TEST "Register tests/profile.py as the ctest test 'profile'" OFF)
+if (ENIM_PROFILE_TEST)
+    find_program(UV_EXECUTABLE uv REQUIRED)
+    add_test(NAME profile
+        COMMAND "${UV_EXECUTABLE}" run "${CMAKE_CURRENT_SOURCE_DIR}/profile.py" --enim $<TARGET_FILE:enim>
+                "${ENIM_TEST_IMAGES_DIR}")
+    set_tests_properties(profile PROPERTIES LABELS profile RUN_SERIAL TRUE TIMEOUT 3600)
+endif()

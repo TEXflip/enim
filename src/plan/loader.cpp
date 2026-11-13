@@ -6,6 +6,8 @@
 #include <core/cache_dir.hpp>
 #include <core/wakeup.hpp>
 #include <io/detect.hpp>
+
+#include "../logging.hpp"
 #include <render/fast_renderer.hpp>
 #include <render/tiled_renderer.hpp>
 
@@ -23,8 +25,10 @@ std::expected<std::unique_ptr<ImageRenderer>, enim::Error> load(const Settings& 
     if (!source_result)
         return std::unexpected(source_result.error());
     std::unique_ptr<ImageSource> source = std::move(source_result.value());
+    PLOG_PROFILE << "source opened";
 
     LoadPlan plan = make_plan(source->info(), source->caps(), gpu, settings);
+    PLOG_PROFILE << "plan made";
 
     PLOGI << "Mode: " << to_string(plan.mode) << ", fast mode needs " << (plan.fast_bytes >> 20) << " MiB of "
               << (settings.fast_mode_max_bytes >> 20) << " MiB budget";

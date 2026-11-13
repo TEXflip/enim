@@ -40,6 +40,9 @@ struct Window {
     Settings& settings;
     MouseState mouse_state;
     ViewTransform window_state;
+    // profiling milestones logged once: "first frame", "load finished"
+    bool first_frame_logged = false;
+    bool load_finished_logged = false;
 
     Window(enim::Settings& settings);
     ~Window();

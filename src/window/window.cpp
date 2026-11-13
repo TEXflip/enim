@@ -120,6 +120,7 @@ std::expected<void, enim::Error> Window::load_image() {
     auto init_result = renderer_result.value()->init();
     if (!init_result)
         return std::unexpected(init_result.error());
+    PLOG_PROFILE << "renderer init";
 
     this->renderer = std::move(renderer_result.value());
     this->window_state.image_size = this->renderer->image_size();
@@ -190,6 +191,10 @@ void Window::poll_events() {
     const bool exit_token = this->settings.exit_after_load;
     RGFW_event event;
     while (!RGFW_window_shouldClose(this->win)) {
+        if (this->settings.profile && !this->load_finished_logged && this->renderer && this->renderer->load_finished()) {
+            this->load_finished_logged = true;
+            PLOG_PROFILE << "load finished";
+        }
         if (exit_token && (!this->renderer || this->renderer->load_finished()))
             break;
         bool loading = this->renderer && this->renderer->loading();
@@ -216,6 +221,10 @@ inline void Window::draw() {
 
     RGFW_window_swapBuffers_OpenGL(this->win);
     glFlush();
+    if (this->renderer && !this->first_frame_logged) {
+        this->first_frame_logged = true;
+        PLOG_PROFILE << "first frame";
+    }
 }
 
 Vec2i Window::get_primary_monitor_size() const {

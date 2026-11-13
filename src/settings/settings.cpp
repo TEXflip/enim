@@ -79,7 +79,8 @@ void print_help(const char* program_name) {
     std::printf("                         or the ENIM_CACHE_DIR environment variable)\n");
     std::printf("  --force-gpu-convert    Debug: convert uncompressed images on the GPU even if they can be uploaded as is\n");
     std::printf("  --force-stream-upload  Debug: decode and convert uncompressed images on the CPU\n");
-    std::printf("  --exit-after-load      Tests: quit once the image is loaded; exit code 1 if an error was logged\n");
+    std::printf("  --profile              Log profiling milestones (time since startup, thread) to stderr\n");
+    std::printf("  --exit-after-load     Tests: quit once the image is loaded; exit code 1 if an error was logged\n");
 }
 
 
@@ -104,6 +105,8 @@ Settings parse_args(int argc, char* argv[]) {
             settings.force_gpu_convert = true;
         } else if (std::strcmp(argv[i], "--force-stream-upload") == 0) {
             settings.force_stream_upload = true;
+        } else if (std::strcmp(argv[i], "--profile") == 0) {
+            settings.profile = true;
         } else if (std::strcmp(argv[i], "--exit-after-load") == 0) {
             settings.exit_after_load = true;
         } else if (std::strcmp(argv[i], "--fast-max-mem") == 0) {

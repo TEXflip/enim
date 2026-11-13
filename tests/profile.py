@@ -2,6 +2,7 @@
 """Profiles the load of every test image in every load mode, then aggregates the time of each profile section.
 
 Usage: uv run tests/profile.py [paths...] [--enim EXE] [--modes m1,m2] [--repeat N] [--timeout S] [--csv FILE]
+       [--report FILE]
 
 paths: image files or directories (their .bmp .qoi .jpg .jpeg), default tests/images/out (tests/images/generate.py).
 Each run is `enim --profile --exit-after-load <mode options> <image>`; enim prints its PLOG_PROFILE milestones
@@ -133,6 +134,16 @@ def print_table(title: str, header: list[str], rows: list[list[Cell]], left: int
         print(format_row(row, widths, left))
 
 
+def markdown_table(title: str, header: list[str], rows: list[list[Cell]], left: int = 1) -> str:
+    """A GitHub flavored Markdown table of the plain cell texts, under a "### title" heading."""
+    def line(texts: list[str]) -> str:
+        return "| " + " | ".join(t.replace("|", "\\|") for t in texts) + " |"
+
+    lines = [f"### {title}", "", line(header), line([":---" if i < left else "---:" for i in range(len(header))])]
+    lines += [line([c.plain for c in row]) for row in rows]
+    return "\n".join(lines) + "\n"
+
+
 @dataclass
 class Run:
     image: str
@@ -219,7 +230,9 @@ def main() -> None:
     parser.add_argument("--repeat", type=int, default=1, help="runs per image and mode (default 1)")
     parser.add_argument("--timeout", type=float, default=600, help="seconds per run (default 600)")
     parser.add_argument("--csv", type=Path, help="also write every section of every run to this CSV file")
-    parser.add_argument("--color", choices=["auto", "always", "never"], default="auto",
+    parser.add_argument("--report", type=Path,
+                        help="also write the sections and per mode tables to this Markdown file")
+    parser.add_argument("--color",choices=["auto", "always", "never"], default="auto",
                         help="colored output (default auto: when printing to a terminal and NO_COLOR isn't set)")
     args = parser.parse_args()
     setup_color(args.color)
@@ -262,10 +275,16 @@ def main() -> None:
 
     columns = ["runs", "total ms", "mean", "median", "min", "max"]
     section_rows = sorted(by_section.items(), key=lambda item: -sum(item[1]))
-    print_table("Sections, all runs (ms)", ["section", *columns],
-                [stats_row(section_cell(n), v) for n, v in section_rows])
-    print_table("Load time to 'load finished', per mode (ms)", ["mode", *columns],
-                [stats_row(cell(m, MODE_COLORS[m]), by_mode[m]) for m in modes if by_mode[m]])
+    tables = [
+        ("Sections, all runs (ms)", ["section", *columns],
+         [stats_row(section_cell(n), v) for n, v in section_rows]),
+        ("Load time to 'load finished', per mode (ms)", ["mode", *columns],
+         [stats_row(cell(m, MODE_COLORS[m]), by_mode[m]) for m in modes if by_mode[m]]),
+    ]
+    for table in tables:
+        print_table(*table)
+    if args.report:
+        args.report.write_text("\n".join(markdown_table(*table) for table in tables), encoding="utf-8")
 
     # exit 1 is ErrorLogged (src/errors.hpp): the broken test images log an error by design. Anything else (a crash,
     # a window/GL failure, a timeout) fails the profile run.

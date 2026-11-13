@@ -2,8 +2,8 @@ name: Profile
 
 # Manual only: Actions tab > Profile > Run workflow.
 # Each job builds enim like ci.yml, generates the test images and runs tests/profile.py, which loads every image in
-# every mode with --profile and aggregates the time of each load section. The tables are shown in the run's summary,
-# and the full log and a CSV of every section are uploaded as artifacts.
+# every mode with --profile and aggregates the time of each load section. The aggregate tables (--report) are shown in
+# the run's summary, and the full log, the report and a CSV of every section are uploaded as artifacts.
 # The runners have no GPU: OpenGL is Mesa llvmpipe (Linux, Windows) or Apple's software renderer (macOS), so GPU-side
 # work (uploads, convert pass, mipmaps) is much slower than on real hardware. Compare runs of the same OS only.
 
@@ -68,7 +68,7 @@ jobs:
         run: |
           set -o pipefail
           xvfb-run -a -s "-screen 0 1920x1080x24" uv run tests/profile.py --enim build/enim --modes "$MODES" \
-            --repeat "$REPEAT" --csv profile-linux.csv --color always | tee profile-linux.log
+            --repeat "$REPEAT" --csv profile-linux.csv --report profile-linux.md --color always | tee profile-linux.log
 
       - name: Summary
         if: always()
@@ -76,9 +76,7 @@ jobs:
         run: |
           {
             echo "## Linux (Mesa llvmpipe)"
-            echo '```'
-            uv run python -c 'import re, sys; print(re.sub(r"\x1b\[[0-9;]*m", "", open(sys.argv[1], encoding="utf-8").read()))' profile-linux.log
-            echo '```'
+            cat profile-linux.md 2>/dev/null || echo "No report: see the Profile step log."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
@@ -136,16 +134,14 @@ jobs:
         run: |
           set -o pipefail
           uv run tests/profile.py --enim build/enim.exe --modes "$MODES" --repeat "$REPEAT" \
-            --csv profile-windows.csv --color always | tee profile-windows.log
+            --csv profile-windows.csv --report profile-windows.md --color always | tee profile-windows.log
 
       - name: Summary
         if: always()
         run: |
           {
             echo "## Windows (Mesa llvmpipe)"
-            echo '```'
-            uv run python -c 'import re, sys; print(re.sub(r"\x1b\[[0-9;]*m", "", open(sys.argv[1], encoding="utf-8").read()))' profile-windows.log
-            echo '```'
+            cat profile-windows.md 2>/dev/null || echo "No report: see the Profile step log."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
@@ -184,16 +180,14 @@ jobs:
         run: |
           set -o pipefail
           uv run tests/profile.py --enim build/enim --modes "$MODES" --repeat "$REPEAT" \
-            --csv profile-macos.csv --color always | tee profile-macos.log
+            --csv profile-macos.csv --report profile-macos.md --color always | tee profile-macos.log
 
       - name: Summary
         if: always()
         run: |
           {
             echo "## macOS (Apple software renderer)"
-            echo '```'
-            uv run python -c 'import re, sys; print(re.sub(r"\x1b\[[0-9;]*m", "", open(sys.argv[1], encoding="utf-8").read()))' profile-macos.log
-            echo '```'
+            cat profile-macos.md 2>/dev/null || echo "No report: see the Profile step log."
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4

@@ -4050,12 +4050,15 @@ i32 RGFW_init_ptr(const char* className, RGFW_initFlags flags, RGFW_info* info) 
     RGFW_setInfo(info);
     RGFW_MEMZERO(_RGFW, sizeof(RGFW_info));
 
+	/* enim patch: on Windows, RGFW_loadGL is called after RGFW_initPlatform (below) */
+#ifndef RGFW_WINDOWS
 	if (flags & RGFW_initOpenGL) {
 		if (RGFW_loadGL() == RGFW_FALSE) {
 			RGFW_debugCallback(RGFW_typeError, RGFW_errFailedFuncLoad, "Failed to load the OpenGL library");
 			return -1;
 		}
 	}
+#endif
 
 	if (flags & RGFW_initEGL) {
 		if (RGFW_loadEGL() == RGFW_FALSE) {
@@ -4080,6 +4083,22 @@ i32 RGFW_init_ptr(const char* className, RGFW_initFlags flags, RGFW_info* info) 
 	    RGFW_setInfo(NULL);
 		return out;
 	}
+
+	/* enim patch: RGFW_loadGL creates a dummy window of the class that RGFW_initPlatform registers. Called before it,
+	 * the dummy window isn't created: the pixel format is chosen and set on the screen DC (~100 ms each), the dummy
+	 * context fails and wglCreateContextAttribsARB isn't loaded, so windows get a legacy context that ignores the
+	 * version, profile and debug hints. */
+#ifdef RGFW_WINDOWS
+	if (flags & RGFW_initOpenGL) {
+		if (RGFW_loadGL() == RGFW_FALSE) {
+			RGFW_debugCallback(RGFW_typeError, RGFW_errFailedFuncLoad, "Failed to load the OpenGL library");
+			RGFW_deinitPlatform();
+			RGFW_MEMZERO(_RGFW, sizeof(RGFW_info));
+			RGFW_setInfo(NULL);
+			return -1;
+		}
+	}
+#endif
 
 	for (size_t i = 0; i < RGFW_mouseIconCount; i++) {
         _RGFW->standardMice[i] = RGFW_createMouseStandard((RGFW_mouseIcon)i);

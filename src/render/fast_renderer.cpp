@@ -45,7 +45,7 @@ std::expected<void, enim::Error> FastRenderer::upload_direct() {
     if (pixels.empty())
         return make_error(ImageLoadError, "Failed to get image buffer");
 
-    PLOG_INFO << "Image size (WxH): " << info.width << "x" << info.height << ", "
+    PLOGI << "Image size (WxH): " << info.width << "x" << info.height << ", "
               << static_cast<int>(info.layout.channels) << " stored / " << static_cast<int>(this->plan.texture.channels) << " displayed channels";
 
     this->create_display_texture();
@@ -67,7 +67,7 @@ std::expected<void, enim::Error> FastRenderer::upload_direct() {
     if (GLenum err = glGetError(); err != GL_NO_ERROR)
         return make_error(GLError, "glTexSubImage2D failed with GL error " + std::to_string(err));
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
-    PLOG_INFO << "Direct upload done in " << elapsed.count() << " ms";
+    PLOGI << "Direct upload done in " << elapsed.count() << " ms";
 
     this->apply_mipmaps();
     return {};
@@ -87,7 +87,7 @@ void FastRenderer::create_display_texture() {
 std::expected<void, enim::Error> FastRenderer::start_stream_upload() {
     const ImageInfo& info = this->source->info();
 
-    PLOG_INFO << "Image size (WxH): " << info.width << "x" << info.height << ", " << static_cast<int>(info.layout.channels)
+    PLOGI << "Image size (WxH): " << info.width << "x" << info.height << ", " << static_cast<int>(info.layout.channels)
               << " stored / " << static_cast<int>(this->plan.texture.channels) << " texture channels, decoded on the CPU";
 
     this->create_display_texture();
@@ -125,7 +125,7 @@ void FastRenderer::upload_stream_bands() {
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
 
     if (GLenum err = glGetError(); err != GL_NO_ERROR)
-        PLOG_ERROR << "GL error " << err << " while uploading decoded rows";
+        PLOGE << "GL error " << err << " while uploading decoded rows";
 
     std::optional<std::expected<void, enim::Error>> result = job.queue.take_result();
     if (!result)
@@ -133,9 +133,9 @@ void FastRenderer::upload_stream_bands() {
 
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - job.start);
     if (*result)
-        PLOG_INFO << "Stream upload done in " << elapsed.count() << " ms";
+        PLOGI << "Stream upload done in " << elapsed.count() << " ms";
     else
-        PLOG_ERROR << "Decoding failed after " << job.rows_uploaded << " rows: " << result->error().message;
+        PLOGE << "Decoding failed after " << job.rows_uploaded << " rows: " << result->error().message;
 
     this->stream_job.reset(); // the decode thread has returned, so this joins immediately
     // a partial image still gets its mipmaps: the missing rows stay transparent
@@ -161,7 +161,7 @@ std::expected<void, enim::Error> FastRenderer::start_gpu_convert() {
     job->band.allocate(job->rows_per_band * layout.stride);
     job->start = std::chrono::steady_clock::now();
 
-    PLOG_INFO << "Image size (WxH): " << info.width << "x" << info.height << ", " << static_cast<int>(layout.channels)
+    PLOGI << "Image size (WxH): " << info.width << "x" << info.height << ", " << static_cast<int>(layout.channels)
               << " stored / " << static_cast<int>(this->plan.texture.channels) << " texture channels, "
               << (info.height + job->rows_per_band - 1) / job->rows_per_band << " band(s) of " << job->rows_per_band << " rows";
 
@@ -183,7 +183,7 @@ void FastRenderer::convert_next_band() {
     job.next_row += rows;
 
     if (GLenum err = glGetError(); err != GL_NO_ERROR)
-        PLOG_ERROR << "GL error " << err << " in GPU convert band at row " << job.next_row - rows;
+        PLOGE << "GL error " << err << " in GPU convert band at row " << job.next_row - rows;
 
     if (job.next_row < info.height)
         return;
@@ -192,7 +192,7 @@ void FastRenderer::convert_next_band() {
     this->prepare_mip_builder(); // cheap: the texture already is a render target
     this->apply_mipmaps();
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - job.start);
-    PLOG_INFO << "GPU convert done in " << elapsed.count() << " ms";
+    PLOGI << "GPU convert done in " << elapsed.count() << " ms";
     this->convert_job.reset();
 }
 
@@ -200,7 +200,7 @@ void FastRenderer::prepare_mip_builder() {
     auto init_result = this->mip_builder.init(this->texture);
     this->mip_blit = init_result.has_value();
     if (!init_result)
-        PLOG_DEBUG << "Mipmaps can't be blitted (" << init_result.error().message << "), glGenerateMipmap will be used";
+        PLOGD << "Mipmaps can't be blitted (" << init_result.error().message << "), glGenerateMipmap will be used";
 }
 
 void FastRenderer::apply_mipmaps() {
@@ -211,7 +211,7 @@ void FastRenderer::apply_mipmaps() {
             this->mip_job = std::make_unique<MipJob>();
             this->mip_job->start = std::chrono::steady_clock::now();
         } else {
-            PLOG_WARNING << "Texture format can't be blitted, generating mipmaps at once";
+            PLOGW << "Texture format can't be blitted, generating mipmaps at once";
             this->texture.generate_mip_chain();
         }
     }
@@ -225,18 +225,18 @@ void FastRenderer::build_next_mip_step() {
     bool done = this->mip_builder.step(this->texture, kMipmapTexelsPerStep);
     ++job.steps;
     job.last_step = now;
-    PLOG_DEBUG << "Mipmap step " << job.steps << ": " << this->texture.mip_levels_ready << " levels ready, "
+    PLOGD << "Mipmap step " << job.steps << ": " << this->texture.mip_levels_ready << " levels ready, "
                << frame.count() / 1000.0 << " ms since the previous step";
     // levels become visible as soon as they are complete
     this->texture.set_mipmaps(this->mipmaps);
 
     if (GLenum err = glGetError(); err != GL_NO_ERROR)
-        PLOG_ERROR << "GL error " << err << " while building mipmaps";
+        PLOGE << "GL error " << err << " while building mipmaps";
 
     if (!done)
         return;
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - job.start);
-    PLOG_INFO << "Mipmaps built: " << this->texture.mip_level_count() << " levels in " << job.steps << " steps, " << elapsed.count() << " ms";
+    PLOGI << "Mipmaps built: " << this->texture.mip_level_count() << " levels in " << job.steps << " steps, " << elapsed.count() << " ms";
     this->mip_job.reset();
 }
 
@@ -256,7 +256,7 @@ void FastRenderer::draw(const ViewTransform& view) {
 
 bool FastRenderer::toggle_mipmaps() {
     this->mipmaps = !this->mipmaps;
-    PLOG_INFO << "Mipmaps " << (this->mipmaps ? "enabled" : "disabled");
+    PLOGI << "Mipmaps " << (this->mipmaps ? "enabled" : "disabled");
     // while converting, the texture is still incomplete: the setting is applied when the last band is done
     if (!this->convert_job && !this->stream_job)
         this->apply_mipmaps();

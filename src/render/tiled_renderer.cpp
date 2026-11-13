@@ -39,7 +39,7 @@ TiledRenderer::~TiledRenderer() {
         this->store.reset(); // unmapped: on Windows a mapped file can't be deleted
         std::error_code ec;
         if (std::filesystem::remove(path, ec))
-            PLOG_INFO << "Removed the incomplete pyramid " << path.string();
+            PLOGI << "Removed the incomplete pyramid " << path.string();
     }
 }
 
@@ -57,9 +57,9 @@ std::expected<void, enim::Error> TiledRenderer::init() {
     this->store = std::move(store_result.value());
 
     const PyramidGeometry& geom = this->store->geometry();
-    PLOG_INFO << "Image size (WxH): " << info.width << "x" << info.height << ", " << static_cast<int>(info.layout.channels)
+    PLOGI << "Image size (WxH): " << info.width << "x" << info.height << ", " << static_cast<int>(info.layout.channels)
               << " stored / " << static_cast<int>(this->plan.texture.channels) << " frame channels";
-    PLOG_INFO << "Pyramid " << path.string() << ": " << geom.level_count() << " levels, " << (geom.file_size >> 20) << " MiB, "
+    PLOGI << "Pyramid " << path.string() << ": " << geom.level_count() << " levels, " << (geom.file_size >> 20) << " MiB, "
               << (this->store->complete() ? "cached" : "building");
 
     this->upload_params = texture_upload_params(this->plan.texture);
@@ -186,7 +186,7 @@ void TiledRenderer::request_tiles(Ring& ring, const ViewTransform& view) {
     if (refining)
         this->last_refine = now;
     request.generation = this->next_generation++;
-    // PLOG_DEBUG << "Tile request " << request.generation << ": level " << ring.level << ", " << request.tiles.size()
+    // PLOGD << "Tile request " << request.generation << ": level " << ring.level << ", " << request.tiles.size()
     //            << " tiles of window " << ring.window.width() << "x" << ring.window.height();
     this->sampler->post(std::move(request));
 }
@@ -213,7 +213,7 @@ void TiledRenderer::upload_tiles() {
     }
     if (uploaded_bytes > 0)
         if (GLenum err = glGetError(); err != GL_NO_ERROR)
-            PLOG_ERROR << "GL error " << err << " while uploading tiles";
+            PLOGE << "GL error " << err << " while uploading tiles";
 }
 
 void TiledRenderer::check_build() {
@@ -223,9 +223,9 @@ void TiledRenderer::check_build() {
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - this->build_start);
     const auto& result = this->builder->result();
     if (result && *result)
-        PLOG_INFO << "Pyramid built in " << elapsed.count() << " ms";
+        PLOGI << "Pyramid built in " << elapsed.count() << " ms";
     else if (result)
-        PLOG_ERROR << "Pyramid build failed after " << elapsed.count() << " ms: " << result->error().message;
+        PLOGE << "Pyramid build failed after " << elapsed.count() << " ms: " << result->error().message;
     this->builder.reset();
 }
 

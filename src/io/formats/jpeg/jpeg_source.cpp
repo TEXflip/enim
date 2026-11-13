@@ -51,7 +51,7 @@ void emit_message(j_common_ptr cinfo, int msg_level) {
     if (cinfo->err->num_warnings++ == 0) {
         char message[JMSG_LENGTH_MAX];
         (*cinfo->err->format_message)(cinfo, message);
-        PLOG_WARNING << "JPEG: " << message;
+        PLOGW << "JPEG: " << message;
     }
 }
 

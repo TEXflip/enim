@@ -46,7 +46,7 @@ std::expected<void, enim::Error> load_gl() {
     const std::string info = "OpenGL " + gl_string(GL_VERSION) + ", " + gl_string(GL_RENDERER) + " (" + gl_string(GL_VENDOR) + ")";
     if (!GLAD_GL_VERSION_3_3)
         return make_error(GLVersionError, "OpenGL 3.3 is required, got " + info);
-    PLOG_INFO << info;
+    PLOGI << info;
     return {};
 }
 
@@ -60,7 +60,7 @@ void enable_gl_debug_output() {
         glEnable(GL_DEBUG_OUTPUT_SYNCHRONOUS_ARB);
         glDebugMessageCallbackARB(onGLDebugARB, NULL);
     } else {
-        PLOG_WARNING << "No debug output available; use GL_CHECK() with glGetError";
+        PLOGW << "No debug output available; use GL_CHECK() with glGetError";
     }
 }
 
@@ -130,7 +130,7 @@ std::expected<void, enim::Error> Window::load_image() {
 void Window::request_redraw() { this->draw(); }
 
 void Window::dispatch_events(const RGFW_event& event) {
-    // PLOG_INFO << "Dispatching event of type: " << std::to_string(event.type);
+    // PLOGI << "Dispatching event of type: " << std::to_string(event.type);
     switch (event.type) {
 #ifndef ENIM_OS_WIN
     case RGFW_windowResized:
@@ -156,7 +156,7 @@ void Window::dispatch_events(const RGFW_event& event) {
         this->on_window_move(event);
         break;
     default:
-        // PLOG_WARNING << "Unhandled event type: " << std::to_string(event.type);
+        // PLOGW << "Unhandled event type: " << std::to_string(event.type);
         break;
     }
 }

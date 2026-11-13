@@ -42,7 +42,7 @@ std::expected<void, enim::Error> create_file(const std::filesystem::path& path, 
     if (handle != INVALID_HANDLE_VALUE) {
         DWORD returned = 0;
         if (!DeviceIoControl(handle, FSCTL_SET_SPARSE, nullptr, 0, nullptr, 0, &returned, nullptr))
-            PLOG_WARNING << "Pyramid cache: can't make the file sparse, writing it may be slower";
+            PLOGW << "Pyramid cache: can't make the file sparse, writing it may be slower";
         CloseHandle(handle);
     }
 #endif

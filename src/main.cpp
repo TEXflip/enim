@@ -47,13 +47,13 @@ int main(int argc, char* argv[]) {
     auto result = window.setup();
     if (!result) {
         const auto& error = result.error();
-        PLOG_ERROR << error.message;
+        PLOGE << error.message;
         return static_cast<int>(error.code);
     }
 
     auto img_load_result = window.load_image();
     if (!img_load_result)
-        PLOG_ERROR << img_load_result.error().message;
+        PLOGE << img_load_result.error().message;
     window.run();
 
     // errors logged by any thread, including the loading ones: the log tells which

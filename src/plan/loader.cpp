@@ -26,16 +26,16 @@ std::expected<std::unique_ptr<ImageRenderer>, enim::Error> load(const Settings& 
 
     LoadPlan plan = make_plan(source->info(), source->caps(), gpu, settings);
 
-    PLOG_INFO << "Mode: " << to_string(plan.mode) << ", fast mode needs " << (plan.fast_bytes >> 20) << " MiB of "
+    PLOGI << "Mode: " << to_string(plan.mode) << ", fast mode needs " << (plan.fast_bytes >> 20) << " MiB of "
               << (settings.fast_mode_max_bytes >> 20) << " MiB budget";
 
     if (plan.mode == Mode::Normal) {
-        PLOG_INFO << "Normal mode level 0: " << (plan.level0 == Level0Source::SourceMmap ? "source mmap" : "decoded to disk");
+        PLOGI << "Normal mode level 0: " << (plan.level0 == Level0Source::SourceMmap ? "source mmap" : "decoded to disk");
         return std::make_unique<TiledRenderer>(std::move(source), plan, settings.image_path, cache_root(settings),
                                                gpu.max_texture_size, wake_main_thread);
     }
 
-    PLOG_INFO << "Fast mode strategy: " << to_string(plan.fast);
+    PLOGI << "Fast mode strategy: " << to_string(plan.fast);
     return std::make_unique<FastRenderer>(std::move(source), plan, wake_main_thread);
 }
 

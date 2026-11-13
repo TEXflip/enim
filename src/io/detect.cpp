@@ -62,7 +62,7 @@ std::expected<std::unique_ptr<ImageSource>, enim::Error> open_source(const std::
         return std::unexpected(format_result.error());
 
     const FileFormat& format = format_result.value();
-    PLOG_INFO << "Detected format: " << format.name;
+    PLOGI << "Detected format: " << format.name;
 
     auto factory_it = SOURCE_MAP.find(format.name);
     if (factory_it == SOURCE_MAP.end())

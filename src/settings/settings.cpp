@@ -7,6 +7,7 @@
 #include <vector>
 
 #include <settings/settings.hpp>
+#include <version.hpp> // generated at build time (cmake/version.cmake)
 
 #include "../errors.hpp"
 
@@ -70,6 +71,7 @@ void print_help(const char* program_name) {
     std::printf("Usage: %s [options] <image>\n", program_name);
     std::printf("Options:\n");
     std::printf("  --help                 Show this help message\n");
+    std::printf("  --version              Print the version (major.minor.patch) and exit\n");
     std::printf("  -d, --debug            Enable debug logging\n");
     std::printf("  --force-fast-mode      Enable fast mode\n");
     std::printf("  --force-normal-mode    Enable normal mode\n");
@@ -96,6 +98,9 @@ Settings parse_args(int argc, char* argv[]) {
             settings.debug = true;
         } else if (std::strcmp(argv[i], "--help") == 0) {
             print_help(argv[0]);
+            std::exit(0);
+        } else if (std::strcmp(argv[i], "--version") == 0) {
+            std::printf("%s\n", ENIM_VERSION);
             std::exit(0);
         } else if (std::strcmp(argv[i], "--force-fast-mode") == 0) {
             settings.force_fast_mode = true;

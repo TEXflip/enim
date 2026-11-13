@@ -54,7 +54,32 @@ The texture keeps the original bit depth whenever OpenGL has a filterable textur
 
 # Code architecture
 
-> Status: target design, partially built. Done: `PixelLayout`/`ImageInfo`, `ImageSource` + `RowSink` interfaces, `BmpSource` (24/32-bit, BI_RGB and byte-aligned bitfields, both row orders), `QoiSource` (CPU-decoded, streamed), `JpegSource` (libjpeg-turbo, 8-bit gray and RGB, streamed), `io/detect`, `DisplayParams`, `choose_texture_format` + direct upload rules, `make_plan`, `plan/loader`, `ImagePass`, and `FastRenderer` with the `DirectUpload`, `GpuConvert` and `StreamUpload` strategies (`RawBuffer`, `Framebuffer`, `ConvertPass` raw variant; swizzle; mipmaps built progressively by `MipmapBuilder` after loading). `StreamUpload` comes with `PixelConverter`, `UploadQueue`, `TextureUploadSink` and `core/wakeup`; the decode thread is owned by the renderer for now, not by a `Loader` session. Normal mode is done: `PyramidStore` (one cached `.pyr` file per image, levels 0…N as tiles), `PyramidBuilderSink`, `tile_selection`, `ViewSampler` (per-tile, with the preview fallback) and `TiledRenderer` (tile ring, stale ring), for both uncompressed and CPU-decoded sources. Debug flags: `--force-gpu-convert` and `--force-stream-upload` send uploadable BMPs through `GpuConvert` / `StreamUpload`, `--force-normal-mode` sends any image through normal mode. Profiling: `--profile` initializes a second plog instance (`kProfileLog`), and `PLOG_PROFILE << "..."` (in `logging.hpp`) writes a milestone to stderr with the time since startup and the thread id; without the flag the instance doesn't exist and the statement is skipped. The milestones are logged on the main thread only (`source opened`, `plan made`, `renderer init`, `first band uploaded`, `direct upload done` / `gpu convert done` / `stream upload done`, `mipmaps built`, `first tile uploaded`, `pyramid built`, `first frame`, `load finished`), so the time between two consecutive ones is a section of the load; `uv run tests/profile.py` loads every test image in every mode (normal mode cold and warm) and aggregates the sections over all runs. Next: `GpuDecode` (with `ConvertPass::init_texture`).
+> **Status:** target design, partially built.
+>
+> **Done**
+> - **Core types:** `PixelLayout`/`ImageInfo`, the `ImageSource` + `RowSink` interfaces, `io/detect`, `DisplayParams`, `choose_texture_format` + direct upload rules, `make_plan`, `plan/loader`, `ImagePass`.
+> - **Sources:**
+>   - `BmpSource`: 24/32-bit, BI_RGB and byte-aligned bitfields, both row orders.
+>   - `QoiSource`: CPU-decoded, streamed.
+>   - `JpegSource`: libjpeg-turbo, 8-bit gray and RGB, streamed.
+> - **Fast mode:** `FastRenderer` with the `DirectUpload`, `GpuConvert` and `StreamUpload` strategies.
+>   - `GpuConvert`: `RawBuffer`, `Framebuffer`, `ConvertPass` raw variant; swizzle.
+>   - `StreamUpload`: `PixelConverter`, `UploadQueue`, `TextureUploadSink` and `core/wakeup`. The decode thread is owned by the renderer for now, not by a `Loader` session.
+>   - Mipmaps built progressively by `MipmapBuilder` after loading.
+> - **Normal mode**, for both uncompressed and CPU-decoded sources:
+>   - `PyramidStore`: one cached `.pyr` file per image, levels 0…N as tiles.
+>   - `PyramidBuilderSink`, `tile_selection`.
+>   - `ViewSampler`: per tile, with the preview fallback.
+>   - `TiledRenderer`: tile ring, stale ring.
+> - **Debug flags:** `--force-gpu-convert` and `--force-stream-upload` send uploadable BMPs through `GpuConvert` / `StreamUpload`; `--force-normal-mode` sends any image through normal mode.
+> - **Profiling:** `--profile` initializes a second plog instance (`kProfileLog`), and `PLOG_PROFILE << "..."` (in `logging.hpp`) writes a milestone to stderr with the time since startup and the thread id. Without the flag the instance doesn't exist and the statement is skipped.
+>   - Milestones are logged on the main thread only, so the time between two consecutive ones is a section of the load: `source opened`, `plan made`, `renderer init`, `first band uploaded`, `direct upload done` / `gpu convert done` / `stream upload done`, `mipmaps built`, `first tile uploaded`, `pyramid built`, `first frame`, `load finished`.
+>   - `uv run tests/profile.py` loads every test image in every mode (normal mode cold and warm) and aggregates the sections over all runs.
+> - **Version:** `--version` prints `ENIM_VERSION` (`major.minor.patch`), written into the generated `version.hpp` at every build (see Directory layout).
+>   - `major.minor` come from the last `X.Y.0` git tag, `patch` is the number of commits since it.
+>   - A new minor or major version is a new `X.Y.0` tag; the patch is automatic.
+>
+> **Next:** `GpuDecode` (with `ConvertPass::init_texture`).
 
 ## Pipeline
 
@@ -504,6 +529,9 @@ All GL calls stay on the main thread; workers only hand over CPU buffers. `GpuCo
 ## Directory layout
 
 ```
+cmake/
+  version.cmake          run at every build (custom target enim_version): last X.Y.0 tag + commits since it
+                         → <build>/generated/version.hpp (#define ENIM_VERSION), rewritten only if it changed, not in git
 src/
   main.cpp
   core/        errors, logging, linalgebra, settings/ (+ fast_mode_max_bytes)

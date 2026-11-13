@@ -12,5 +12,7 @@
 bin
 build
 *.log
+# generated at build time (cmake/version.cmake)
+version.hpp
 
 .DS_Store

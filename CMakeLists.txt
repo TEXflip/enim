@@ -116,7 +116,17 @@ add_executable(enim
     src/render/tiled_renderer.cpp
     src/settings/settings.cpp
 )
-    
+
+# version.hpp (ENIM_VERSION) is regenerated from git at every build, in the build directory (never committed)
+set(VERSION_HEADER ${CMAKE_BINARY_DIR}/generated/version.hpp)
+add_custom_target(enim_version ALL
+    COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${CMAKE_SOURCE_DIR} -DOUTPUT=${VERSION_HEADER}
+        -P ${CMAKE_SOURCE_DIR}/cmake/version.cmake
+    BYPRODUCTS ${VERSION_HEADER}
+    COMMENT "Generating version.hpp"
+)
+add_dependencies(enim enim_version)
+
 target_compile_definitions(enim PRIVATE
     RGFWDEF=
     $<$<CONFIG:Debug>:DEBUG>
@@ -128,6 +138,7 @@ target_include_directories(enim PRIVATE
     third_party/mio
     third_party/vecmath
     src
+    ${CMAKE_BINARY_DIR}/generated
 )
 
 

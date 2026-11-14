@@ -31,6 +31,23 @@ set(compressed_images
     jpeg_rgb_truncated.jpg
     jpeg_rgb_progressive_truncated.jpg
     jpeg_cmyk.jpg
+    png_rgb_odd.png
+    png_rgba.png
+    png_gray.png
+    png_gray_alpha.png
+    png_gray1.png
+    png_palette.png
+    png_palette_trns.png
+    png_gray_trns.png
+    png_rgb_trns.png
+    png_gray16.png
+    png_rgb16.png
+    png_rgba16.png
+    png_rgba_interlaced.png
+    png_rgb16_interlaced.png
+    png_rgb_large.png
+    png_rgb_truncated.png
+    png_rgb_interlaced_truncated.png
 )
 # must report an error (and still exit normally)
 set(error_images
@@ -38,6 +55,8 @@ set(error_images
     jpeg_rgb_truncated.jpg
     jpeg_rgb_progressive_truncated.jpg
     jpeg_cmyk.jpg
+    png_rgb_truncated.png
+    png_rgb_interlaced_truncated.png
 )
 
 # mode: label of the test, args: enim options separated by |

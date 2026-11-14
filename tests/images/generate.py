@@ -15,6 +15,7 @@ Every image shows the same pattern, so a wrong channel order, row order or strid
 import io
 import struct
 import sys
+import zlib
 from pathlib import Path
 
 import numpy as np
@@ -115,6 +116,73 @@ def encode_qoi(pixels: np.ndarray) -> bytes:
     return bytes(out + bytes(7) + b"")
 
 
+def png_filter_rows(raw: np.ndarray, bpp: int) -> bytes:
+    """Filters scanlines (rows, bytes) with every PNG filter in turn (row y uses type y % 5), so the decoder's
+    defiltering code is exercised; the encoder filters the unfiltered bytes, so it vectorizes."""
+    raw = raw.astype(np.int16)
+    out = bytearray()
+    prev = np.zeros(raw.shape[1], dtype=np.int16)
+    for y, row in enumerate(raw):
+        left = np.concatenate([np.zeros(bpp, dtype=np.int16), row[:-bpp]])
+        up_left = np.concatenate([np.zeros(bpp, dtype=np.int16), prev[:-bpp]])
+        kind = y % 5
+        if kind == 0:
+            filtered = row
+        elif kind == 1:
+            filtered = row - left
+        elif kind == 2:
+            filtered = row - prev
+        elif kind == 3:
+            filtered = row - (left + prev) // 2
+        else:  # Paeth
+            p = left + prev - up_left
+            pa, pb, pc = np.abs(p - left), np.abs(p - prev), np.abs(p - up_left)
+            pred = np.where((pa <= pb) & (pa <= pc), left, np.where(pb <= pc, prev, up_left))
+            filtered = row - pred
+        out.append(kind)
+        out += (filtered & 0xFF).astype(np.uint8).tobytes()
+        prev = row
+    return bytes(out)
+
+
+def encode_png(samples: np.ndarray, interlace: bool = False) -> bytes:
+    """Encodes a uint8 or uint16 image (height, width, 1 to 4 channels: gray, gray+alpha, RGB, RGBA) as PNG. It writes
+    what Pillow can't: 16-bit color and Adam7 interlacing."""
+    height, width, channels = samples.shape
+    depth = 16 if samples.dtype == np.uint16 else 8
+    color_type = {1: 0, 2: 4, 3: 2, 4: 6}[channels]
+    bpp = channels * depth // 8
+
+    def scanlines(img: np.ndarray) -> bytes:
+        if img.size == 0:
+            return b""
+        raw = img.astype(">u2").view(np.uint8) if depth == 16 else img
+        return png_filter_rows(raw.reshape(img.shape[0], -1), bpp)
+
+    if interlace:  # Adam7 passes: (x0, y0, dx, dy)
+        passes = [(0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4), (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2)]
+        data = b"".join(scanlines(samples[y0::dy, x0::dx]) for x0, y0, dx, dy in passes)
+    else:
+        data = scanlines(samples)
+
+    def chunk(kind: bytes, body: bytes) -> bytes:
+        return struct.pack(">I", len(body)) + kind + body + struct.pack(">I", zlib.crc32(kind + body))
+
+    ihdr = struct.pack(">IIBBBBB", width, height, depth, color_type, 0, 0, 1 if interlace else 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(data, 6)) + chunk(b"IEND", b"")
+
+
+def to16(img: np.ndarray) -> np.ndarray:
+    """uint8 pattern to uint16, with low bits that vary too (a wrong byte order shows as noise)."""
+    return img.astype(np.uint16) * 257 ^ np.arange(img.shape[1], dtype=np.uint16)[None, :, None] % 256
+
+
+def png_bytes(img: Image.Image, **params) -> bytes:
+    buffer = io.BytesIO()
+    img.save(buffer, format="PNG", **params)
+    return buffer.getvalue()
+
+
 def jpeg_bytes(pixels: np.ndarray, progressive: bool) -> bytes:
     buffer = io.BytesIO()
     Image.fromarray(pixels).save(buffer, format="JPEG", quality=90, progressive=progressive)
@@ -184,6 +252,31 @@ def main() -> None:
         ),
         # not supported yet: must fail in open() with a clear message
         "jpeg_cmyk.jpg": lambda p: Image.fromarray(even[..., :3]).convert("CMYK").save(p, quality=90),
+        # PNG (libspng, StreamUpload): every color type; 8-bit ones written by Pillow
+        "png_rgb_odd.png": lambda p: Image.fromarray(odd[..., :3]).save(p),
+        "png_rgba.png": lambda p: Image.fromarray(even).save(p),
+        "png_gray.png": lambda p: Image.fromarray(odd[..., :3]).convert("L").save(p),
+        "png_gray_alpha.png": lambda p: Image.fromarray(even).convert("LA").save(p),
+        "png_gray1.png": lambda p: Image.fromarray(odd[..., :3]).convert("1").save(p),  # 1-bit, expanded to 8
+        "png_palette.png": lambda p: Image.fromarray(odd[..., :3]).quantize(64).save(p),
+        "png_palette_trns.png": lambda p: Image.fromarray(even).quantize(64, method=Image.Quantize.FASTOCTREE).save(p),
+        # tRNS on gray and RGB: one value is transparent, an alpha channel is added
+        "png_gray_trns.png": lambda p: Image.fromarray(odd[..., :3]).convert("L").save(p, transparency=0),
+        "png_rgb_trns.png": lambda p: Image.fromarray(even[..., :3]).save(p, transparency=(0, 0, 255)),
+        # 16-bit and interlaced (own encoder)
+        "png_gray16.png": lambda p: p.write_bytes(encode_png(to16(odd[..., :1]))),
+        "png_rgb16.png": lambda p: p.write_bytes(encode_png(to16(odd[..., :3]))),
+        "png_rgba16.png": lambda p: p.write_bytes(encode_png(to16(even))),
+        "png_rgba_interlaced.png": lambda p: p.write_bytes(encode_png(odd, interlace=True)),
+        "png_rgb16_interlaced.png": lambda p: p.write_bytes(encode_png(to16(odd[..., :3]), interlace=True)),
+        "png_rgb_large.png": lambda p: Image.fromarray(photo_like(6000, 4000)).save(p),
+        # cut in half: non-interlaced keeps the rows decoded before the error, interlaced shows nothing; both report it
+        "png_rgb_truncated.png": lambda p: p.write_bytes(
+            (lambda q: q[: len(q) // 2])(png_bytes(Image.fromarray(photo_like(3000, 2000))))
+        ),
+        "png_rgb_interlaced_truncated.png": lambda p: p.write_bytes(
+            (lambda q: q[: len(q) // 2])(encode_png(photo_like(3000, 2000), interlace=True))
+        ),
     }
 
     # --large: fast mode would need ~1.5 GiB, over the default budget, so they load in normal mode (odd sizes: pyramid edges)
@@ -193,6 +286,7 @@ def main() -> None:
             "bmp_bgr24_huge.bmp": lambda p: write_bmp(p, bgr(pattern(24001, 16001)[..., :3])),
             # decoded to disk (DecodeToDisk)
             "jpeg_rgb_huge.jpg": lambda p: Image.fromarray(pattern(24001, 16001)[..., :3]).save(p, quality=90),
+            "png_rgb_huge.png": lambda p: Image.fromarray(pattern(24001, 16001)[..., :3]).save(p, compress_level=1),
         }
 
     for name, write in cases.items():

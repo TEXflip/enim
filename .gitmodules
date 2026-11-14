@@ -1,3 +1,9 @@
 [submodule "third_party/libjpeg-turbo"]
 	path = third_party/libjpeg-turbo
 	url = https://github.com/libjpeg-turbo/libjpeg-turbo.git
+[submodule "third_party/libspng"]
+	path = third_party/libspng
+	url = https://github.com/randy408/libspng.git
+[submodule "third_party/zlib-ng"]
+	path = third_party/zlib-ng
+	url = https://github.com/zlib-ng/zlib-ng.git

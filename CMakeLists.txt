@@ -80,6 +80,37 @@ set_target_properties(jpeg PROPERTIES
 )
 add_dependencies(jpeg libjpeg-turbo-build)
 
+# PNG: libspng (third_party/libspng/spng/spng.c, compiled here) over zlib-ng in zlib-compatible mode, both static.
+# zlib-ng picks its SIMD code (SSE/AVX2/AVX-512, NEON) at runtime, so the binary still runs on any x86-64/arm64 CPU.
+foreach (dir libspng zlib-ng)
+    if (NOT EXISTS ${CMAKE_SOURCE_DIR}/third_party/${dir}/README.md)
+        message(FATAL_ERROR "third_party/${dir} is empty: run git submodule update --init")
+    endif()
+endforeach()
+
+# a function, so that these settings don't leak into enim (BUILD_TESTING is enim's too: tests/)
+function(add_zlib_ng)
+    set(ZLIB_COMPAT ON)        # zlib.h API, what libspng includes
+    set(BUILD_SHARED_LIBS OFF) # only the static library
+    set(BUILD_TESTING OFF)     # zlib-ng's tests would download GoogleTest
+    set(WITH_GZFILEOP OFF)     # no gzFile API
+    set(SKIP_INSTALL_ALL ON)
+    add_subdirectory(third_party/zlib-ng EXCLUDE_FROM_ALL)
+endfunction()
+add_zlib_ng()
+
+add_library(spng STATIC third_party/libspng/spng/spng.c)
+target_include_directories(spng PUBLIC third_party/libspng/spng)
+# SPNG_STATIC: no __declspec(dllimport) on Windows. SSE2 filter code on x86 (the default, SPNG_SSE=1), NEON on arm64.
+target_compile_definitions(spng PUBLIC SPNG_STATIC)
+target_link_libraries(spng PRIVATE zlib-ng-static)
+
+# decoding is the hot path: zlib-ng and libspng are optimized in Debug builds of enim too, like libjpeg-turbo
+if (CMAKE_C_COMPILER_ID MATCHES "GNU|Clang" AND CMAKE_BUILD_TYPE STREQUAL "Debug")
+    target_compile_options(zlib-ng PRIVATE -O2)
+    target_compile_options(spng PRIVATE -O2)
+endif()
+
 add_executable(enim
     src/main.cpp
     src/linalgebra.cpp
@@ -90,6 +121,7 @@ add_executable(enim
     src/io/detect.cpp
     src/io/formats/bmp/bmp_source.cpp
     src/io/formats/jpeg/jpeg_source.cpp
+    src/io/formats/png/png_source.cpp
     src/io/formats/qoi/qoi_source.cpp
     src/pipeline/pixel_converter.cpp
     src/pipeline/texture_upload_sink.cpp
@@ -142,7 +174,7 @@ target_include_directories(enim PRIVATE
 )
 
 
-set(LIBS plog::plog glad jpeg)
+set(LIBS plog::plog glad jpeg spng)
 
 if (WIN32)
     set(LIBS ${LIBS} opengl32 gdi32 shell32 user32 advapi32 comctl32)

@@ -62,6 +62,7 @@ The texture keeps the original bit depth whenever OpenGL has a filterable textur
 >   - `BmpSource`: 24/32-bit, BI_RGB and byte-aligned bitfields, both row orders.
 >   - `QoiSource`: CPU-decoded, streamed.
 >   - `JpegSource`: libjpeg-turbo, 8-bit gray and RGB, streamed.
+>   - `PngSource`: libspng over zlib-ng, every color type and bit depth, streamed (interlaced: decoded whole first).
 > - **Fast mode:** `FastRenderer` with the `DirectUpload`, `GpuConvert` and `StreamUpload` strategies.
 >   - `GpuConvert`: `RawBuffer`, `Framebuffer`, `ConvertPass` raw variant; swizzle.
 >   - `StreamUpload`: `PixelConverter`, `UploadQueue`, `TextureUploadSink` and `core/wakeup`. The decode thread is owned by the renderer for now, not by a `Loader` session.
@@ -217,7 +218,7 @@ struct RawBuffer {                  // GL buffer + buffer texture view (GL_R32UI
 
 ### CPU conversion (`StreamUpload`)
 
-For formats only the CPU can decode (today QOI and JPEG; later PNG, ...). The image appears progressively, top to bottom:
+For formats only the CPU can decode (today QOI, JPEG and PNG). The image appears progressively, top to bottom:
 
 1. The display texture is created as for the other strategies (level 0 and mip storage allocated, render target set up while empty), then cleared to transparent so rows not decoded yet show the background.
 2. A **decode thread** (`std::jthread`) runs `ImageSource::decode()` into a `TextureUploadSink`. For each chunk of rows (64 for QOI) the sink converts them with the `PixelConverter` into the texture's layout, on that thread, and pushes the band to the `UploadQueue`, then wakes the main thread (`wake_main_thread()` → `RGFW_stopCheckEvents`). Bottom-up sources are written reversed, so the texture is always top-down.
@@ -314,7 +315,7 @@ The GPU never sees the pyramid as a whole. The CPU produces the pyramid tiles ar
 
 One file per image in the cache directory: `<cache>/<key>.pyr`, holding **level 0 and every other level**.
 
-- **Key:** MD5 of the image's file name followed by the bytes of its header (`ImageSource::header_bytes()`: BMP up to the pixel array, the 14-byte QOI header, JPEG from SOI to the end of the first SOS segment). Hashing the whole file would take seconds for the images normal mode is for; this takes microseconds, so the cache is looked up in `TiledRenderer::init()` on the main thread.
+- **Key:** MD5 of the image's file name followed by the bytes of its header (`ImageSource::header_bytes()`: BMP up to the pixel array, the 14-byte QOI header, JPEG from SOI to the end of the first SOS segment, PNG from the signature to the header of the first IDAT chunk). Hashing the whole file would take seconds for the images normal mode is for; this takes microseconds, so the cache is looked up in `TiledRenderer::init()` on the main thread.
 - **Cache directory:** `--cache-dir <dir>`, then `ENIM_CACHE_DIR`, then `%LOCALAPPDATA%/enim/cache` (Windows), `~/Library/Caches/enim` (macOS), `$XDG_CACHE_HOME/enim` or `~/.cache/enim` (Linux). Files are kept between runs and never evicted (yet).
 - **Layout** (`pyramid/pyramid_format.hpp`): a 4 KiB header (magic, version, size, the source `PixelLayout`, tile size, level count, file size, `complete` flag), then levels 0…N down to 1×1, each half the previous one rounded up. Every level is stored as 256×256 tiles, tightly packed (edge tiles padded), row by row, top-down, in the source's channel order, sample type and byte order. So all levels share the source's `PixelLayout` with `stride = 256 × bytes per pixel`, and one `PixelConverter` serves them all. Level 0 is copied into the file for uncompressed sources too, so the cache is self-contained.
 - **Creation:** the free space is checked first (clear error if the disk is too full), the file is allocated at its final size (on Windows marked sparse first, so that writing far into it doesn't zero-fill the gap) and memory-mapped read-write. `PyramidStore` owns the mapping; the OS page cache is the tile cache.
@@ -451,6 +452,7 @@ Non-streamable formats still use `StreamUpload`: they emit a single chunk at the
 | BMP | `DirectUpload` (`GpuConvert` for layouts GL can't read) | own (`BmpSource`) | done |
 | QOI | `StreamUpload` | own (`QoiSource`) | done |
 | JPEG | `StreamUpload` | libjpeg-turbo (`JpegSource`) | done: 8-bit gray and color; not yet CMYK/YCCK, 12/16-bit |
+| PNG | `StreamUpload` | libspng + zlib-ng (`PngSource`) | done: every color type and bit depth, tRNS, interlaced; gamma and color profiles ignored |
 
 ### JPEG
 
@@ -465,6 +467,29 @@ Non-streamable formats still use `StreamUpload`: they emit a single chunk at the
 - **Later:**
   - EXIF orientation.
   - Normal mode: libjpeg-turbo's scaled decoding (`scale_num/scale_denom` = 1/2, 1/4, 1/8, a partial IDCT) as a fast preview or coarse pyramid level, and `jpeg_skip_scanlines` / `jpeg_crop_scanline`.
+
+### PNG
+
+- **Strategy:** `StreamUpload`. The image data is one DEFLATE stream and every row is filtered against the previous one, so decoding is sequential: no `GpuDecode`.
+- **Decoder:** [libspng](https://github.com/randy408/libspng) (git submodule in `third_party/libspng`, pinned to a release tag), chosen over libpng (slower, `setjmp` API) and Wuffs (faster, but its work buffer is the size of the whole image and it emits no rows before the end, which rules it out for normal mode). Its progressive API (`spng_decode_row`) emits one row at a time; its defilter code has SSE2 (x86) and NEON (arm64) paths. `spng.c` is compiled as the `spng` static target.
+- **zlib:** [zlib-ng](https://github.com/zlib-ng/zlib-ng) (submodule in `third_party/zlib-ng`, pinned to a release tag), built with `add_subdirectory` in zlib-compatible mode (`ZLIB_COMPAT`), static, without its tests. Inflate is most of the decode time; zlib-ng picks its SIMD code (SSE/AVX2/AVX-512, NEON) at runtime, so the binary stays portable. Both libraries are built with `-O2` in Debug builds too.
+- **`PngSource`:**
+  - `open()` reads the header and the chunks before the first IDAT, and picks the output format so that the rows stay in a native `PixelLayout`:
+
+    | PNG | Output (`spng_format`) | Layout |
+    |---|---|---|
+    | gray, gray+alpha, RGB, RGBA, 8/16-bit, no tRNS | `SPNG_FMT_PNG` (as stored) | U8/U16, 1–4 channels |
+    | gray 1/2/4-bit | `SPNG_FMT_G8` (scaled to 0…255) | U8 gray |
+    | gray + tRNS | `SPNG_FMT_GA8` / `GA16` | gray+alpha |
+    | RGB + tRNS | `SPNG_FMT_RGBA8` / `RGBA16` | RGBA |
+    | palette | `SPNG_FMT_RGB8`, `RGBA8` with tRNS | RGB / RGBA |
+
+    16-bit samples come out in host byte order (`big_endian = false`), so no converter swaps bytes. Gamma (`gAMA`), color profiles (`iCCP`, `sRGB`) and `sBIT` are ignored.
+  - Checksums are not verified (`SPNG_CTX_IGNORE_ADLER32`, `SPNG_CRC_USE`): they cost a few percent of the decode time, and corrupt image data still fails in inflate.
+  - `decode()` creates a new decoder (a libspng context decodes once) over the same mmap (`spng_set_png_buffer`), and emits bands of 64 rows, checking the `stop_token` between bands.
+  - **Interlaced (Adam7)** images are not streamable (`caps().streamable = false`): every row is written by several passes, and is final only after the 6th (even rows) or 7th pass (odd rows). They are decoded whole into a temporary buffer (`std::nothrow`: an error if there is no memory for it), then emitted in bands. In normal mode that buffer is the size of the decoded image.
+  - Errors: as with QOI and JPEG, the complete rows of the failing band are emitted before the error (truncated file: libspng reports `end of stream`). An interlaced image emits nothing on error, since its rows are incomplete.
+- **Later:** gamma and color management; APNG (only the default image is shown); a lower-memory path for huge interlaced images (decode only passes 6/7 rows when they complete).
 
 
 ## Producer: `ImageSource`
@@ -547,7 +572,7 @@ src/
     pixel_layout.hpp     SampleType, PixelLayout, ChannelRole, ImageInfo
     image_source.hpp     ImageSource, FormatCaps
     row_sink.hpp
-    formats/bmp/, qoi/   one folder per decoder
+    formats/bmp/, jpeg/, png/, qoi/   one folder per decoder
   plan/
     load_plan.*          make_plan(): mode + strategy + texture format, pure
     loader.*             wires source → sinks → renderer from a plan, owns the threads

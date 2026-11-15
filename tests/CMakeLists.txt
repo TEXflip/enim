@@ -93,6 +93,16 @@ set(decoded_images
     tiff_tiled_jpeg_large.tif
     tiff_lzw_rgb8_truncated.tif
     tiff_complex.tif
+    webp_lossy_rgb_odd.webp
+    webp_lossy_rgba.webp
+    webp_lossless_rgb_odd.webp
+    webp_lossless_rgba.webp
+    webp_lossy_icc.webp
+    webp_animated.webp
+    webp_lossy_large.webp
+    webp_lossless_large.webp
+    webp_lossy_truncated.webp
+    webp_lossless_truncated.webp
 )
 # must report an error (and still exit normally)
 set(error_images
@@ -104,6 +114,8 @@ set(error_images
     png_rgb_interlaced_truncated.png
     tiff_lzw_rgb8_truncated.tif
     tiff_complex.tif
+    webp_lossy_truncated.webp
+    webp_lossless_truncated.webp
 )
 
 # mode: label of the test, args: enim options separated by |

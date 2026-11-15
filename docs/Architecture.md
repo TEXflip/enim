@@ -22,6 +22,7 @@
     - [JPEG](#jpeg)
     - [PNG](#png)
     - [TIFF](#tiff)
+    - [WebP](#webp)
   - [Producer: `ImageSource`](#producer-imagesource)
   - [Destinations: `RowSink`s](#destinations-rowsinks)
   - [Threads](#threads)
@@ -66,6 +67,7 @@ The texture keeps the original bit depth whenever OpenGL has a filterable textur
 >   - `JpegSource`: libjpeg-turbo, 8-bit gray and RGB, streamed.
 >   - `PngSource`: libspng over zlib-ng, every color type and bit depth, streamed (interlaced: decoded whole first).
 >   - `TiffSource`: libtiff with every codec except JBIG, strips and tiles, every photometric interpretation, bit depth and sample format. Uncompressed contiguous images are raw-mappable; the others are decoded in parallel, streamed.
+>   - `WebpSource`: libwebp, lossy (with alpha) and lossless, streamed through the incremental decoder; animations show their first frame.
 > - **Fast mode:** `FastRenderer` with the `DirectUpload`, `GpuConvert` and `StreamUpload` strategies.
 >   - `GpuConvert`: `RawBuffer`, `Framebuffer`, `ConvertPass` raw variant; swizzle.
 >   - `StreamUpload`: `PixelConverter`, `UploadQueue`, `TextureUploadSink` and `core/wakeup`. The decode thread is owned by the renderer for now, not by a `Loader` session.
@@ -225,7 +227,7 @@ struct RawBuffer {                  // GL buffer + buffer texture view (GL_R32UI
 
 ### CPU conversion (`StreamUpload`)
 
-For formats only the CPU can decode (today QOI, JPEG, PNG and compressed or converted TIFF). The image appears progressively, top to bottom:
+For formats only the CPU can decode (today QOI, JPEG, PNG, WebP and compressed or converted TIFF). The image appears progressively, top to bottom:
 
 1. The display texture is created as for the other strategies (level 0 and mip storage allocated, render target set up while empty), then cleared to transparent so rows not decoded yet show the background.
 2. A **decode thread** (`std::jthread`) runs `ImageSource::decode()` into a `TextureUploadSink`. For each chunk of rows (64 for QOI) the sink converts them with the `PixelConverter` into the texture's layout, on that thread, and pushes the band to the `UploadQueue`, then wakes the main thread (`wake_main_thread()` → `RGFW_stopCheckEvents`). Bottom-up sources are written reversed, so the texture is always top-down.
@@ -322,7 +324,7 @@ The GPU never sees the pyramid as a whole. The CPU produces the pyramid tiles ar
 
 One file per image in the cache directory: `<cache>/<key>.pyr`, holding **level 0 and every other level**.
 
-- **Key:** MD5 of the image's file name followed by the bytes of its header (`ImageSource::header_bytes()`: BMP up to the pixel array, the 14-byte QOI header, JPEG from SOI to the end of the first SOS segment, PNG from the signature to the header of the first IDAT chunk, TIFF the file header and the raw bytes of the image's IFD). Hashing the whole file would take seconds for the images normal mode is for; this takes microseconds, so the cache is looked up in `TiledRenderer::init()` on the main thread.
+- **Key:** MD5 of the image's file name followed by the bytes of its header (`ImageSource::header_bytes()`: BMP up to the pixel array, the 14-byte QOI header, JPEG from SOI to the end of the first SOS segment, PNG from the signature to the header of the first IDAT chunk, TIFF the file header and the raw bytes of the image's IFD, WebP the chunks before the image data and the start of its bitstream). Hashing the whole file would take seconds for the images normal mode is for; this takes microseconds, so the cache is looked up in `TiledRenderer::init()` on the main thread.
 - **Cache directory:** `--cache-dir <dir>`, then `ENIM_CACHE_DIR`, then `%LOCALAPPDATA%/enim/cache` (Windows), `~/Library/Caches/enim` (macOS), `$XDG_CACHE_HOME/enim` or `~/.cache/enim` (Linux). Files are kept between runs and never evicted (yet).
 - **Layout** (`pyramid/pyramid_format.hpp`): a 4 KiB header (magic, version, size, the source `PixelLayout`, tile size, level count, file size, `complete` flag), then levels 0…N down to 1×1, each half the previous one rounded up. Every level is stored as 256×256 tiles, tightly packed (edge tiles padded), row by row, top-down, in the source's channel order, sample type and byte order. So all levels share the source's `PixelLayout` with `stride = 256 × bytes per pixel`, and one `PixelConverter` serves them all. Level 0 is copied into the file for uncompressed sources too, so the cache is self-contained.
 - **Creation:** the free space is checked first (clear error if the disk is too full), the file is allocated at its final size (on Windows marked sparse first, so that writing far into it doesn't zero-fill the gap) and memory-mapped read-write. `PyramidStore` owns the mapping; the OS page cache is the tile cache.
@@ -460,6 +462,7 @@ Non-streamable formats still use `StreamUpload`: they emit a single chunk at the
 | QOI | `StreamUpload` | own (`QoiSource`) | done |
 | JPEG | `StreamUpload` | libjpeg-turbo (`JpegSource`) | done: 8-bit gray and color; not yet CMYK/YCCK, 12/16-bit |
 | PNG | `StreamUpload` | libspng + zlib-ng (`PngSource`) | done: every color type and bit depth, tRNS, interlaced; gamma and color profiles ignored |
+| WebP | `StreamUpload` | libwebp (`WebpSource`) | done: lossy, lossy + alpha, lossless; first frame of animations; ICC, EXIF and XMP ignored |
 | TIFF, BigTIFF | `DirectUpload` / `GpuConvert` when uncompressed and contiguous, else `StreamUpload` | libtiff + zlib-ng, libjpeg-turbo, zstd, liblzma, libwebp, LERC (`TiffSource`) | done: every codec but JBIG, strips/tiles, planar, every photometric and sample format; first page only, orientations 5–8 and color profiles ignored |
 
 ### JPEG
@@ -543,6 +546,19 @@ Non-streamable formats still use `StreamUpload`: they emit a single chunk at the
   - pyramidal TIFFs and COGs: their reduced-resolution IFDs could fill the `.pyr` levels instead of building them, and tiles could be read on demand in normal mode.
 
 
+### WebP
+
+- **Strategy:** `StreamUpload`. Lossy WebP is VP8 (sequential arithmetic coding, macroblocks predicted from their neighbours) and lossless is VP8L (entropy-coded, with transforms over the whole image): no `GpuDecode`.
+- **Decoder:** [libwebp](https://github.com/webmproject/libwebp), the submodule libtiff uses too (`third_party/libwebp`, pinned to a release tag), built with `add_subdirectory` without its tools, static (`add_webp()` in `CMakeLists.txt`): `webp` (decoder, SIMD code picked at runtime) and `webpdemux` (animations).
+- **`WebpSource`:**
+  - `open()` reads the features (`WebPGetFeatures`): size, alpha, animation. The layout is RGB8, or RGBA8 (straight alpha) when the image has transparency.
+  - **Animations:** the demuxer (`WebPDemuxPartial`, so a truncated file still gives its first frames) finds the first frame, which is decoded and placed on the canvas; the canvas around a frame smaller than it is transparent (RGBA). The frame count is logged.
+  - `decode()` uses the **incremental decoder** (`WebPIDecode`, `use_threads` for lossy filtering): the file is mapped, so `WebPIUpdate` is given a growing prefix of it (1/64 of the file, at least 256 KB, per step) and the rows decoded so far (`WebPIDecGetRGB`'s `last_y`) are emitted after each step. The stop token is checked between steps.
+  - The decoder writes into a buffer the size of the frame (`std::nothrow`: an error if there is no memory). WebP images are at most 16383×16383, so at most 1 GB in RGBA; in normal mode this buffer exists while the pyramid is built.
+  - Errors: a truncated file leaves the decoder suspended once every byte was given; the rows decoded before are kept and the error is reported (`premature end of data`).
+- **Measured:** a 6000×4000 lossy image is shown in about 200 ms after opening, lossless in about 260 ms.
+- **Later:** ICC profiles; animation playback; EXIF orientation.
+
 ## Producer: `ImageSource`
 
 Replaces the current `FileReader`. One decode entry point serves every strategy:
@@ -624,7 +640,7 @@ src/
     pixel_layout.hpp     SampleType, PixelLayout, ChannelRole, ImageInfo
     image_source.hpp     ImageSource, FormatCaps
     row_sink.hpp
-    formats/bmp/, jpeg/, png/, qoi/, tiff/   one folder per decoder
+    formats/bmp/, jpeg/, png/, qoi/, tiff/, webp/   one folder per decoder
   plan/
     load_plan.*          make_plan(): mode + strategy + texture format, pure
     loader.*             wires source → sinks → renderer from a plan, owns the threads

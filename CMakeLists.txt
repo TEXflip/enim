@@ -105,11 +105,24 @@ target_include_directories(spng PUBLIC third_party/libspng/spng)
 target_compile_definitions(spng PUBLIC SPNG_STATIC)
 target_link_libraries(spng PRIVATE zlib-ng-static)
 
+# WebP: libwebp (decoder, and the demuxer for the first frame of animations), static. libtiff uses it too.
+if (NOT EXISTS ${CMAKE_SOURCE_DIR}/third_party/libwebp/CMakeLists.txt)
+    message(FATAL_ERROR "third_party/libwebp is empty: run git submodule update --init")
+endif()
+function(add_webp)
+    set(BUILD_SHARED_LIBS OFF)
+    foreach (tool ANIM_UTILS CWEBP DWEBP GIF2WEBP IMG2WEBP VWEBP WEBPINFO LIBWEBPMUX WEBPMUX EXTRAS)
+        set(WEBP_BUILD_${tool} OFF)
+    endforeach()
+    add_subdirectory(third_party/libwebp EXCLUDE_FROM_ALL)
+endfunction()
+add_webp()
+
 # TIFF: libtiff over the codec libraries, all static and built in-tree: zlib-ng (Deflate, PixarLog), libjpeg-turbo
 # (JPEG 8/12-bit, old JPEG), zstd, liblzma (xz), libwebp and LERC. JBIG is left out: JBIG-KIT is GPL.
 # libtiff looks for each codec with find_package(); the modules in cmake/tiff/ come first in CMAKE_MODULE_PATH and
 # answer with the in-tree targets, so nothing is taken from the system and the build order follows the links.
-foreach (dir libtiff zstd xz libwebp lerc)
+foreach (dir libtiff zstd xz lerc)
     if (NOT EXISTS ${CMAKE_SOURCE_DIR}/third_party/${dir}/CMakeLists.txt AND NOT EXISTS ${CMAKE_SOURCE_DIR}/third_party/${dir}/build/cmake/CMakeLists.txt)
         message(FATAL_ERROR "third_party/${dir} is empty: run git submodule update --init")
     endif()
@@ -135,11 +148,6 @@ function(add_tiff)
         set(XZ_TOOL_${tool} OFF)
     endforeach()
     add_subdirectory(third_party/xz EXCLUDE_FROM_ALL)
-
-    foreach (tool ANIM_UTILS CWEBP DWEBP GIF2WEBP IMG2WEBP VWEBP WEBPINFO LIBWEBPMUX WEBPMUX EXTRAS)
-        set(WEBP_BUILD_${tool} OFF)
-    endforeach()
-    add_subdirectory(third_party/libwebp EXCLUDE_FROM_ALL)
 
     add_subdirectory(third_party/lerc EXCLUDE_FROM_ALL)
 
@@ -172,7 +180,7 @@ add_tiff()
 
 # decoding is the hot path: the decoders are optimized in Debug builds of enim too, like libjpeg-turbo
 if (CMAKE_C_COMPILER_ID MATCHES "GNU|Clang" AND CMAKE_BUILD_TYPE STREQUAL "Debug")
-    foreach (target zlib-ng spng tiff libzstd_static liblzma webp sharpyuv Lerc)
+    foreach (target zlib-ng spng tiff libzstd_static liblzma webp webpdemux sharpyuv Lerc)
         target_compile_options(${target} PRIVATE -O2)
     endforeach()
 endif()
@@ -191,6 +199,7 @@ add_executable(enim
     src/io/formats/qoi/qoi_source.cpp
     src/io/formats/tiff/tiff_convert.cpp
     src/io/formats/tiff/tiff_source.cpp
+    src/io/formats/webp/webp_source.cpp
     src/pipeline/pixel_converter.cpp
     src/pipeline/texture_upload_sink.cpp
     src/plan/load_plan.cpp
@@ -242,7 +251,7 @@ target_include_directories(enim PRIVATE
 )
 
 
-set(LIBS plog::plog glad jpeg spng tiff)
+set(LIBS plog::plog glad jpeg spng tiff webpdemux webp)
 
 if (WIN32)
     set(LIBS ${LIBS} opengl32 gdi32 shell32 user32 advapi32 comctl32)

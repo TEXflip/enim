@@ -281,6 +281,37 @@ def tiff_cases(odd: np.ndarray, even: np.ndarray) -> dict:
     }
 
 
+def webp_bytes(img: Image.Image, **params) -> bytes:
+    buffer = io.BytesIO()
+    img.save(buffer, format="WEBP", **params)
+    return buffer.getvalue()
+
+
+def webp_cases(odd: np.ndarray, even: np.ndarray) -> dict:
+    """WebP (libwebp, StreamUpload): lossy (VP8, ALPH for alpha), lossless (VP8L), animated, truncated."""
+    rgb, rgba = Image.fromarray(odd[..., :3]), Image.fromarray(even)
+    frames = [Image.fromarray(even[..., :3]), Image.fromarray(even[::-1, :, :3])]
+    return {
+        "webp_lossy_rgb_odd.webp": lambda p: rgb.save(p, quality=90),
+        "webp_lossy_rgba.webp": lambda p: rgba.save(p, quality=90),
+        "webp_lossless_rgb_odd.webp": lambda p: rgb.save(p, lossless=True),
+        "webp_lossless_rgba.webp": lambda p: rgba.save(p, lossless=True),
+        # VP8X container with an ICC profile chunk before the image data
+        "webp_lossy_icc.webp": lambda p: rgb.save(p, quality=90, icc_profile=bytes(128)),
+        # the first frame is shown
+        "webp_animated.webp": lambda p: frames[0].save(p, save_all=True, append_images=frames[1:], duration=100, lossless=True),
+        "webp_lossy_large.webp": lambda p: Image.fromarray(photo_like(6000, 4000)).save(p, quality=90),
+        "webp_lossless_large.webp": lambda p: Image.fromarray(photo_like(6000, 4000)).save(p, lossless=True, method=0),
+        # cut in half: the rows decoded before the cut are kept, an error is reported
+        "webp_lossy_truncated.webp": lambda p: p.write_bytes(
+            (lambda q: q[: len(q) // 2])(webp_bytes(Image.fromarray(photo_like(3000, 2000)), quality=90))
+        ),
+        "webp_lossless_truncated.webp": lambda p: p.write_bytes(
+            (lambda q: q[: len(q) // 2])(webp_bytes(Image.fromarray(photo_like(3000, 2000)), lossless=True, method=0))
+        ),
+    }
+
+
 def main() -> None:
     args = sys.argv[1:]
     force = "--force" in args
@@ -371,6 +402,7 @@ def main() -> None:
         ),
     }
     cases |= tiff_cases(odd, even)
+    cases |= webp_cases(odd, even)
 
     # --large: fast mode would need ~1.5 GiB, over the default budget, so they load in normal mode (odd sizes: pyramid edges)
     if large:
@@ -380,6 +412,8 @@ def main() -> None:
             # decoded to disk (DecodeToDisk)
             "jpeg_rgb_huge.jpg": lambda p: Image.fromarray(pattern(24001, 16001)[..., :3]).save(p, quality=90),
             "png_rgb_huge.png": lambda p: Image.fromarray(pattern(24001, 16001)[..., :3]).save(p, compress_level=1),
+            # the largest WebP (16383 x 16383): decoded to disk
+            "webp_lossy_huge.webp": lambda p: Image.fromarray(pattern(16383, 16383)[..., :3]).save(p, quality=80, method=0),
             # raw mmap (SourceMmap) and tiles decoded in parallel to disk
             "tiff_rgb8_huge.tif": lambda p: tifffile.imwrite(p, pattern(24001, 16001)[..., :3]),
             "tiff_tiled_deflate_huge.tif": lambda p: tifffile.imwrite(

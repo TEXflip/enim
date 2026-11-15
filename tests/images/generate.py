@@ -19,6 +19,7 @@ import zlib
 from pathlib import Path
 
 import numpy as np
+import tifffile
 from PIL import Image
 
 
@@ -189,6 +190,97 @@ def jpeg_bytes(pixels: np.ndarray, progressive: bool) -> bytes:
     return buffer.getvalue()
 
 
+def tiff_bytes(data: np.ndarray, **params) -> bytes:
+    buffer = io.BytesIO()
+    tifffile.imwrite(buffer, data, **params)
+    return buffer.getvalue()
+
+
+def pil_tiff(img: Image.Image, **params):
+    """Writer of a TIFF saved by Pillow (through its own libtiff for the compressed ones)."""
+    return lambda p: img.save(p, format="TIFF", **params)
+
+
+def orientation(value: int) -> list:
+    """tifffile extratags entry for the Orientation tag."""
+    return [(274, "H", 1, value, True)]
+
+
+def tiff_cases(odd: np.ndarray, even: np.ndarray) -> dict:
+    """TIFF (libtiff): every layout path (raw mmap, decoded, converted, RGBA fallback) and every codec."""
+    gray = odd[..., 0]
+    rgb = odd[..., :3]
+    w = tifffile.imwrite
+    premultiplied = (even[..., :3].astype(np.uint16) * even[..., 3:] // 255).astype(np.uint8)
+    # 16-bit colormap that isn't 8-bit scaled: a blue to yellow ramp
+    ramp = np.arange(256, dtype=np.uint32) * 65535 // 255
+    palette = np.stack([ramp, ramp, 65535 - ramp]).astype(np.uint16) ^ 0x0001
+    pages = io.BytesIO()
+    with tifffile.TiffWriter(pages) as tw:
+        tw.write(rgb, subfiletype=1)  # reduced-resolution image first: skipped
+        tw.write(even[..., :3])
+        tw.write(gray)
+    return {
+        # uncompressed, contiguous strips: raw-mappable (DirectUpload, or GpuConvert for what GL can't read)
+        "tiff_rgb8.tif": lambda p: w(p, rgb),
+        "tiff_rgba8.tif": lambda p: w(p, even, extrasamples=["unassalpha"]),
+        "tiff_gray16_be.tif": lambda p: w(p, to16(odd[..., :1])[..., 0], byteorder=">"),
+        "tiff_rgb16_be.tif": lambda p: w(p, to16(rgb), byteorder=">"),
+        "tiff_i8_gray.tif": lambda p: w(p, (gray.astype(np.int16) - 128).astype(np.int8)),
+        "tiff_i16_gray.tif": lambda p: w(p, (gray.astype(np.int32) * 256 - 32768).astype(np.int16)),
+        "tiff_u32_gray.tif": lambda p: w(p, gray.astype(np.uint32) * 16843009),
+        "tiff_f16_rgb.tif": lambda p: w(p, (rgb / 255).astype(np.float16)),
+        "tiff_f32_gray.tif": lambda p: w(p, (gray / 255).astype(np.float32)),
+        # values in [-200, 800] with SMinSampleValue/SMaxSampleValue: shown with that range
+        "tiff_f32_gray_range.tif": lambda p: w(
+            p, (gray / 255 * 1000 - 200).astype(np.float32), extratags=[(340, "d", 1, -200.0, True), (341, "d", 1, 800.0, True)]
+        ),
+        "tiff_multispectral6.tif": lambda p: w(p, np.dstack([rgb, rgb[..., ::-1]]), photometric="minisblack", planarconfig="contig"),
+        # orientation 4: rows stored bottom-up; 2: mirrored (decoded and flipped)
+        "tiff_rgb8_bottomup.tif": lambda p: w(p, rgb[::-1], extratags=orientation(4)),
+        "tiff_rgb8_mirrored.tif": lambda p: w(p, rgb[:, ::-1], extratags=orientation(2)),
+        # uncompressed but decoded: tiles, planes, 64-bit samples
+        "tiff_tiled_rgb8_odd.tif": lambda p: w(p, rgb, tile=(64, 64)),
+        "tiff_planar_rgb16.tif": lambda p: w(p, np.moveaxis(to16(rgb), -1, 0), planarconfig="separate"),
+        "tiff_tiled_planar_rgb8.tif": lambda p: w(p, np.moveaxis(rgb, -1, 0), tile=(32, 48), planarconfig="separate"),
+        "tiff_f64_gray.tif": lambda p: w(p, gray / 255),
+        "tiff_bigtiff_rgb8.tif": lambda p: w(p, rgb, bigtiff=True),
+        # every codec
+        "tiff_lzw_rgb8_pred.tif": lambda p: w(p, rgb, compression="lzw", predictor=True, rowsperstrip=16),
+        "tiff_deflate_rgba16.tif": lambda p: w(p, to16(even), compression="zlib", extrasamples=["unassalpha"]),
+        "tiff_deflate_f32_pred3.tif": lambda p: w(p, (rgb / 255).astype(np.float32), compression="zlib", predictor=True),
+        "tiff_zstd_rgb8.tif": lambda p: w(p, rgb, compression="zstd", rowsperstrip=8),
+        "tiff_lzma_gray8.tif": lambda p: w(p, gray, compression="lzma"),
+        "tiff_webp_rgb8.tif": lambda p: w(p, even[..., :3], compression="webp", tile=(128, 128)),
+        "tiff_lerc_f32.tif": lambda p: w(p, (gray / 255).astype(np.float32), compression="lerc"),
+        "tiff_packbits_gray8.tif": lambda p: w(p, gray, compression="packbits"),
+        "tiff_jpeg_ycbcr.tif": lambda p: w(p, rgb, compression="jpeg"),  # tifffile: YCbCr, 4:2:0
+        "tiff_jpeg_rgb.tif": pil_tiff(Image.fromarray(rgb), compression="jpeg"),  # Pillow: RGB
+        "tiff_ccitt_g4.tif": pil_tiff(Image.fromarray(rgb).convert("1"), compression="group4"),
+        # photometric interpretations and bit depths that are converted
+        "tiff_bilevel1.tif": pil_tiff(Image.fromarray(rgb).convert("1")),
+        "tiff_gray4.tif": lambda p: w(p, gray >> 4, bitspersample=4),
+        "tiff_miniswhite_gray8.tif": lambda p: w(p, 255 - gray, photometric="miniswhite"),
+        "tiff_palette8.tif": pil_tiff(Image.fromarray(rgb).quantize(64)),
+        "tiff_palette16bit_map.tif": lambda p: w(p, gray, photometric="palette", colormap=palette),
+        "tiff_cmyk8.tif": pil_tiff(Image.fromarray(rgb).convert("CMYK")),
+        "tiff_assoc_alpha.tif": lambda p: w(p, np.dstack([premultiplied, even[..., 3:]]), extrasamples=["assocalpha"]),
+        # RGBA fallback (TIFFRGBAImage): CIE L*a*b*, YCbCr without JPEG
+        "tiff_lab8.tif": pil_tiff(Image.fromarray(rgb).convert("LAB")),
+        "tiff_ycbcr.tif": lambda p: w(p, np.asarray(Image.fromarray(even[..., :3]).convert("YCbCr")), photometric="ycbcr"),
+        # several pages: the first full-resolution one (the second IFD) is shown
+        "tiff_multipage.tif": lambda p: p.write_bytes(pages.getvalue()),
+        # large: many strips and tiles, decoded in parallel
+        "tiff_lzw_rgb8_large.tif": lambda p: w(p, photo_like(6000, 4000), compression="lzw", predictor=True, rowsperstrip=16),
+        "tiff_tiled_jpeg_large.tif": lambda p: w(p, photo_like(6000, 4000), compression="jpeg", tile=(256, 256)),
+        # errors: cut in half (the strips before the cut are shown), complex samples (unsupported)
+        "tiff_lzw_rgb8_truncated.tif": lambda p: p.write_bytes(
+            (lambda q: q[: len(q) // 2])(tiff_bytes(photo_like(3000, 2000), compression="lzw", rowsperstrip=16))
+        ),
+        "tiff_complex.tif": lambda p: w(p, gray.astype(np.complex64)),
+    }
+
+
 def main() -> None:
     args = sys.argv[1:]
     force = "--force" in args
@@ -278,6 +370,7 @@ def main() -> None:
             (lambda q: q[: len(q) // 2])(encode_png(photo_like(3000, 2000), interlace=True))
         ),
     }
+    cases |= tiff_cases(odd, even)
 
     # --large: fast mode would need ~1.5 GiB, over the default budget, so they load in normal mode (odd sizes: pyramid edges)
     if large:
@@ -287,6 +380,11 @@ def main() -> None:
             # decoded to disk (DecodeToDisk)
             "jpeg_rgb_huge.jpg": lambda p: Image.fromarray(pattern(24001, 16001)[..., :3]).save(p, quality=90),
             "png_rgb_huge.png": lambda p: Image.fromarray(pattern(24001, 16001)[..., :3]).save(p, compress_level=1),
+            # raw mmap (SourceMmap) and tiles decoded in parallel to disk
+            "tiff_rgb8_huge.tif": lambda p: tifffile.imwrite(p, pattern(24001, 16001)[..., :3]),
+            "tiff_tiled_deflate_huge.tif": lambda p: tifffile.imwrite(
+                p, pattern(24001, 16001)[..., :3], compression=("zlib", 1), tile=(512, 512)
+            ),
         }
 
     for name, write in cases.items():

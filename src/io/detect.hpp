@@ -32,8 +32,10 @@ constexpr FileFormat FORMATS[] = {
     {"GIF87a", "image/gif", {{'G', 'I', 'F', '8', '7', 'a'}, 6, 0}},
     {"GIF89a", "image/gif", {{'G', 'I', 'F', '8', '9', 'a'}, 6, 0}},
     {"BMP", "image/bmp", {{'B', 'M'}, 2, 0}},
-    {"TIFF (little-endian)", "image/tiff", {{0x49, 0x49, 0x2A, 0x00}, 4, 0}},
-    {"TIFF (big-endian)", "image/tiff", {{0x4D, 0x4D, 0x00, 0x2A}, 4, 0}},
+    {"TIFF", "image/tiff", {{0x49, 0x49, 0x2A, 0x00}, 4, 0}},    // little-endian
+    {"TIFF", "image/tiff", {{0x4D, 0x4D, 0x00, 0x2A}, 4, 0}},    // big-endian
+    {"BigTIFF", "image/tiff", {{0x49, 0x49, 0x2B, 0x00}, 4, 0}}, // little-endian
+    {"BigTIFF", "image/tiff", {{0x4D, 0x4D, 0x00, 0x2B}, 4, 0}}, // big-endian
 
     // WEBP: bytes 0-3 are "RIFF", bytes 4-7 are file size (variable),
     // so the only fixed, size-independent signature is "WEBP" at offset 8.

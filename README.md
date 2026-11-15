@@ -60,6 +60,7 @@ The format is detected from the file's signature, not its extension. Uncompresse
 | QOI | RGB and RGBA, 8-bit | |
 | JPEG | 8-bit grayscale and color (YCbCr/RGB), baseline, progressive, arithmetic and lossless | CMYK/YCCK, 12/16-bit, EXIF orientation |
 | PNG | every color type and bit depth: grayscale (1–16-bit), gray+alpha, RGB, RGBA (8/16-bit), palette; tRNS transparency; interlaced (shown once fully decoded) | gamma and color profiles (ignored), APNG animation (first frame only) |
+| TIFF, BigTIFF | uncompressed, LZW, Deflate, JPEG (8/12-bit, old JPEG), ZSTD, LZMA, WebP, LERC, PackBits, CCITT fax, LogLuv, PixarLog; strips and tiles, chunky and planar; 1–64-bit unsigned, signed and float samples; gray, RGB, palette, CMYK, YCbCr, CIE Lab, extra channels and alpha; orientations 1–4; value range from SMin/SMaxSampleValue | JBIG, complex samples, orientations 5–8 (shown as stored), color profiles (ignored), other pages than the first |
 
 ## Test images
 

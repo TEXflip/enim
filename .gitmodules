@@ -7,3 +7,18 @@
 [submodule "third_party/zlib-ng"]
 	path = third_party/zlib-ng
 	url = https://github.com/zlib-ng/zlib-ng.git
+[submodule "third_party/libtiff"]
+	path = third_party/libtiff
+	url = https://gitlab.com/libtiff/libtiff.git
+[submodule "third_party/zstd"]
+	path = third_party/zstd
+	url = https://github.com/facebook/zstd.git
+[submodule "third_party/xz"]
+	path = third_party/xz
+	url = https://github.com/tukaani-project/xz.git
+[submodule "third_party/libwebp"]
+	path = third_party/libwebp
+	url = https://github.com/webmproject/libwebp.git
+[submodule "third_party/lerc"]
+	path = third_party/lerc
+	url = https://github.com/Esri/lerc.git

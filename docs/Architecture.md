@@ -20,6 +20,8 @@
   - [Load plan](#load-plan)
   - [Formats](#formats)
     - [JPEG](#jpeg)
+    - [PNG](#png)
+    - [TIFF](#tiff)
   - [Producer: `ImageSource`](#producer-imagesource)
   - [Destinations: `RowSink`s](#destinations-rowsinks)
   - [Threads](#threads)
@@ -63,6 +65,7 @@ The texture keeps the original bit depth whenever OpenGL has a filterable textur
 >   - `QoiSource`: CPU-decoded, streamed.
 >   - `JpegSource`: libjpeg-turbo, 8-bit gray and RGB, streamed.
 >   - `PngSource`: libspng over zlib-ng, every color type and bit depth, streamed (interlaced: decoded whole first).
+>   - `TiffSource`: libtiff with every codec except JBIG, strips and tiles, every photometric interpretation, bit depth and sample format. Uncompressed contiguous images are raw-mappable; the others are decoded in parallel, streamed.
 > - **Fast mode:** `FastRenderer` with the `DirectUpload`, `GpuConvert` and `StreamUpload` strategies.
 >   - `GpuConvert`: `RawBuffer`, `Framebuffer`, `ConvertPass` raw variant; swizzle.
 >   - `StreamUpload`: `PixelConverter`, `UploadQueue`, `TextureUploadSink` and `core/wakeup`. The decode thread is owned by the renderer for now, not by a `Loader` session.
@@ -135,10 +138,14 @@ struct PixelLayout {
     std::size_t bytes_per_pixel() const;
 };
 
-struct ImageInfo { std::size_t width, height; PixelLayout layout; };
+struct ImageInfo {
+    std::size_t width, height;
+    PixelLayout layout;
+    std::optional<std::array<float, 2>> range; // value range declared by the file (TIFF SMin/SMaxSampleValue)
+};
 ```
 
-Channel roles come from the file header, never from scanning the pixels. For example a 32-bit `BI_RGB` BMP is `{B, G, R, Unused}`.
+Channel roles come from the file header, never from scanning the pixels. For example a 32-bit `BI_RGB` BMP is `{B, G, R, Unused}`. When the file declares a value range, `make_plan` uses it as `DisplayParams::range` instead of the sample type's default.
 
 ## Display texture format
 
@@ -218,7 +225,7 @@ struct RawBuffer {                  // GL buffer + buffer texture view (GL_R32UI
 
 ### CPU conversion (`StreamUpload`)
 
-For formats only the CPU can decode (today QOI, JPEG and PNG). The image appears progressively, top to bottom:
+For formats only the CPU can decode (today QOI, JPEG, PNG and compressed or converted TIFF). The image appears progressively, top to bottom:
 
 1. The display texture is created as for the other strategies (level 0 and mip storage allocated, render target set up while empty), then cleared to transparent so rows not decoded yet show the background.
 2. A **decode thread** (`std::jthread`) runs `ImageSource::decode()` into a `TextureUploadSink`. For each chunk of rows (64 for QOI) the sink converts them with the `PixelConverter` into the texture's layout, on that thread, and pushes the band to the `UploadQueue`, then wakes the main thread (`wake_main_thread()` → `RGFW_stopCheckEvents`). Bottom-up sources are written reversed, so the texture is always top-down.
@@ -315,7 +322,7 @@ The GPU never sees the pyramid as a whole. The CPU produces the pyramid tiles ar
 
 One file per image in the cache directory: `<cache>/<key>.pyr`, holding **level 0 and every other level**.
 
-- **Key:** MD5 of the image's file name followed by the bytes of its header (`ImageSource::header_bytes()`: BMP up to the pixel array, the 14-byte QOI header, JPEG from SOI to the end of the first SOS segment, PNG from the signature to the header of the first IDAT chunk). Hashing the whole file would take seconds for the images normal mode is for; this takes microseconds, so the cache is looked up in `TiledRenderer::init()` on the main thread.
+- **Key:** MD5 of the image's file name followed by the bytes of its header (`ImageSource::header_bytes()`: BMP up to the pixel array, the 14-byte QOI header, JPEG from SOI to the end of the first SOS segment, PNG from the signature to the header of the first IDAT chunk, TIFF the file header and the raw bytes of the image's IFD). Hashing the whole file would take seconds for the images normal mode is for; this takes microseconds, so the cache is looked up in `TiledRenderer::init()` on the main thread.
 - **Cache directory:** `--cache-dir <dir>`, then `ENIM_CACHE_DIR`, then `%LOCALAPPDATA%/enim/cache` (Windows), `~/Library/Caches/enim` (macOS), `$XDG_CACHE_HOME/enim` or `~/.cache/enim` (Linux). Files are kept between runs and never evicted (yet).
 - **Layout** (`pyramid/pyramid_format.hpp`): a 4 KiB header (magic, version, size, the source `PixelLayout`, tile size, level count, file size, `complete` flag), then levels 0…N down to 1×1, each half the previous one rounded up. Every level is stored as 256×256 tiles, tightly packed (edge tiles padded), row by row, top-down, in the source's channel order, sample type and byte order. So all levels share the source's `PixelLayout` with `stride = 256 × bytes per pixel`, and one `PixelConverter` serves them all. Level 0 is copied into the file for uncompressed sources too, so the cache is self-contained.
 - **Creation:** the free space is checked first (clear error if the disk is too full), the file is allocated at its final size (on Windows marked sparse first, so that writing far into it doesn't zero-fill the gap) and memory-mapped read-write. `PyramidStore` owns the mapping; the OS page cache is the tile cache.
@@ -453,6 +460,7 @@ Non-streamable formats still use `StreamUpload`: they emit a single chunk at the
 | QOI | `StreamUpload` | own (`QoiSource`) | done |
 | JPEG | `StreamUpload` | libjpeg-turbo (`JpegSource`) | done: 8-bit gray and color; not yet CMYK/YCCK, 12/16-bit |
 | PNG | `StreamUpload` | libspng + zlib-ng (`PngSource`) | done: every color type and bit depth, tRNS, interlaced; gamma and color profiles ignored |
+| TIFF, BigTIFF | `DirectUpload` / `GpuConvert` when uncompressed and contiguous, else `StreamUpload` | libtiff + zlib-ng, libjpeg-turbo, zstd, liblzma, libwebp, LERC (`TiffSource`) | done: every codec but JBIG, strips/tiles, planar, every photometric and sample format; first page only, orientations 5–8 and color profiles ignored |
 
 ### JPEG
 
@@ -490,6 +498,49 @@ Non-streamable formats still use `StreamUpload`: they emit a single chunk at the
   - **Interlaced (Adam7)** images are not streamable (`caps().streamable = false`): every row is written by several passes, and is final only after the 6th (even rows) or 7th pass (odd rows). They are decoded whole into a temporary buffer (`std::nothrow`: an error if there is no memory for it), then emitted in bands. In normal mode that buffer is the size of the decoded image.
   - Errors: as with QOI and JPEG, the complete rows of the failing band are emitted before the error (truncated file: libspng reports `end of stream`). An interlaced image emits nothing on error, since its rows are incomplete.
 - **Later:** gamma and color management; APNG (only the default image is shown); a lower-memory path for huge interlaced images (decode only passes 6/7 rows when they complete).
+
+### TIFF
+
+- **Strategy:** an uncompressed image whose rows are stored back to back is **raw-mappable**, like BMP: `DirectUpload` when GL reads its layout (8/16-bit gray/RGB/RGBA, I8/I16, F16/F32, big-endian through `GL_UNPACK_SWAP_BYTES`), `GpuConvert` otherwise (U32/I32, more than 4 channels, a declared value range). Everything else is decoded by libtiff on the CPU (`StreamUpload`). TIFF codecs are sequential within a strip or tile (LZW, Deflate, JPEG, ...), so no `GpuDecode`.
+- **Libraries:** [libtiff](https://gitlab.com/libtiff/libtiff) and its codec libraries, git submodules pinned to release tags, all built in-tree with `add_subdirectory` and linked statically (`add_tiff()` in `CMakeLists.txt`):
+  - zlib-ng (Deflate, PixarLog), libjpeg-turbo (JPEG 8 and 12-bit through its dual API, old JPEG), [zstd](https://github.com/facebook/zstd), liblzma from [xz](https://github.com/tukaani-project/xz), [libwebp](https://github.com/webmproject/libwebp), [LERC](https://github.com/Esri/lerc) (C++);
+  - built into libtiff: LZW, PackBits, CCITT G3/G4, LogLuv, NeXT, ThunderScan.
+  - libtiff looks for each codec with `find_package()`. The modules in `cmake/tiff/` come first in `CMAKE_MODULE_PATH` and answer with the in-tree targets, so nothing is taken from the system, and the build fails at configure time if a codec isn't enabled.
+  - **JBIG is left out:** JBIG-KIT is GPL-2.0, enim is MIT. libdeflate isn't used either (zlib-ng is fast already).
+- **`TiffSource`** (`io/formats/tiff/`):
+  - libtiff reads the mapped file through `TIFFClientOpenExt` with read/seek/map procs over the mmap (uncompressed strips are read in place). Each handle has its own error and warning handlers (`TIFFOpenOptions`): the first error becomes the `Error` message, each distinct warning is logged once.
+  - **Page:** the first IFD that isn't a reduced-resolution image (`SubfileType` bit 0: overviews, thumbnails). The page count is logged.
+  - **Layout:** every image ends in a native `PixelLayout`, through one of four paths:
+
+    | Path | Images | Rows |
+    |---|---|---|
+    | raw | uncompressed, chunky, 8/16/32-bit (or F16/F32), gray/RGB (+ extra samples), straight alpha, orientation 1 or 4, contiguous strips | straight from the mmap, in the file's byte order |
+    | native | the same layouts, compressed, tiled or with non-contiguous strips | libtiff's decoded rows as they are (host byte order) |
+    | convert | everything else libtiff decodes as samples | `tiff::convert_row` (`tiff_convert.cpp`) |
+    | RGBA | YCbCr without JPEG, CIE/ICC/ITU Lab, old JPEG | `TIFFRGBAImage`: RGBA8, un-premultiplied |
+
+    The convert path reads samples of any bit depth (1–32 packed MSB-first, 64, F16/FP24/F32/F64) and sample format, from chunky rows or one row per plane, and writes:
+    - 1–7-bit samples as U8, 9–15 as U16, 17–31 as U32 (or I8/I16/I32), scaled to the full range of the type; 64-bit samples as F32 (integers normalized to [0, 1] or [−1, 1]);
+    - MinIsWhite inverted; palette indices through the 16-bit colormap, as RGB8 when every entry is an 8-bit value × 257 (or an 8-bit colormap) and RGB16 otherwise; CMYK as RGB (`(1−C)(1−K)`, no color management);
+    - LogLuv decoded as float XYZ (`SGILOGDATAFMT_FLOAT`) then linear sRGB F32, LogL as F32 gray;
+    - JPEG YCbCr is decoded to RGB by libjpeg (`JPEGCOLORMODE_RGB`) and takes the native path;
+    - associated (premultiplied) alpha un-premultiplied; the first alpha extra sample is `A`, the others are `Other`.
+  - **Orientation:** 1 is top-down, 4 bottom-up (`RowOrder::BottomUp`), 2 and 3 are mirrored by the converter (3 is also bottom-up). 5–8 (transposed) are shown as stored, with a warning: `PixelLayout` has no transposed rows. The RGBA path asks `TIFFRGBAImage` for the file's own orientation, so it flips nothing and the same rules apply.
+  - **Value range:** `SMinSampleValue`/`SMaxSampleValue` of float and 32-bit integer images become `ImageInfo::range`. Without them, float images use [0, 1].
+  - `header_bytes()` is the file header plus the raw bytes of the image's IFD (it can be anywhere in the file): size, layout, compression and strip/tile offsets.
+- **Decoding** emits bands of whole strips or tile rows, at least 64 rows, in storage order:
+  - the strips or tiles (and planes) of a band are decoded **in parallel** over a `ThreadPool` (one worker per hardware thread), each worker with its own libtiff handle on the same mapping, since handles aren't thread-safe. A band holds enough units to keep the workers busy, up to 64 MB. Tiles are copied into the band's rows (tile widths are multiples of 16, so they start on byte boundaries even for 1-bit samples);
+  - the converter runs on the same pool, 8 rows per item;
+  - a chunky strip over 16 MB (often one strip for the whole image) is read row by row with `TIFFReadScanline`, so it still streams;
+  - the RGBA path decodes bands of whole strips or tile rows with `TIFFRGBAImageGet` on one handle; one strip for the whole image is decoded at once (`streamable = false`), as is a planar image with one strip per plane.
+  - Errors: the rows before the first failing strip or tile row are emitted, then the error (a truncated file: `Read error on strip N`).
+- **Measured:** a 6000×4000 LZW RGB image (16-row strips) or tiled JPEG decodes and uploads in about 90 ms after opening, on 24 hardware threads.
+- **Later:**
+  - multi-page navigation;
+  - transposed orientations (with JPEG EXIF orientation);
+  - color management (ICC profiles, CMYK, Lab);
+  - an automatic value range for float images without SMin/SMax;
+  - pyramidal TIFFs and COGs: their reduced-resolution IFDs could fill the `.pyr` levels instead of building them, and tiles could be read on demand in normal mode.
 
 
 ## Producer: `ImageSource`
@@ -557,6 +608,7 @@ All GL calls stay on the main thread; workers only hand over CPU buffers. `GpuCo
 cmake/
   version.cmake          run at every build (custom target enim_version): last X.Y.0 tag + commits since it
                          → <build>/generated/version.hpp (#define ENIM_VERSION), rewritten only if it changed, not in git
+  tiff/Find*.cmake       libtiff's find_package() modules, answered with the in-tree codec targets
 src/
   main.cpp
   core/        errors, logging, linalgebra, settings/ (+ fast_mode_max_bytes)
@@ -572,7 +624,7 @@ src/
     pixel_layout.hpp     SampleType, PixelLayout, ChannelRole, ImageInfo
     image_source.hpp     ImageSource, FormatCaps
     row_sink.hpp
-    formats/bmp/, jpeg/, png/, qoi/   one folder per decoder
+    formats/bmp/, jpeg/, png/, qoi/, tiff/   one folder per decoder
   plan/
     load_plan.*          make_plan(): mode + strategy + texture format, pure
     loader.*             wires source → sinks → renderer from a plan, owns the threads

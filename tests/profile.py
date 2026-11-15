@@ -32,7 +32,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-IMAGE_SUFFIXES = {".bmp", ".qoi", ".jpg", ".jpeg"}
+IMAGE_SUFFIXES = {
+    ".png", ".jpg", ".jpeg", ".jpe", ".jfif", ".gif", ".bmp", ".dib", ".tif", ".tiff", ".webp",
+    ".ico", ".cur", ".psd", ".heic", ".heif", ".avif", ".jp2", ".dds", ".exr", ".xcf", ".jxr",
+    ".wdp", ".hdp", ".jxl", ".flif", ".icns", ".ktx", ".ktx2", ".qoi", ".wmf",
+    ".pbm", ".pgm", ".ppm", ".pnm",
+}
 PROFILE_LINE = re.compile(r"^\[profile\s+([\d.]+) ms\s+tid\s+(\d+)\] (.*)$")
 
 # name -> (enim options, BMP only, empty the cache before the run)

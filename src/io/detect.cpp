@@ -12,6 +12,7 @@
 #include <io/formats/jpeg/jpeg_source.hpp>
 #include <io/formats/png/png_source.hpp>
 #include <io/formats/qoi/qoi_source.hpp>
+#include <io/formats/tiff/tiff_source.hpp>
 
 namespace {
 
@@ -21,7 +22,9 @@ const std::unordered_map<std::string_view, SourceFactory> SOURCE_MAP{
     {"BMP", []() { return std::make_unique<enim::BmpSource>(); }},
     {"JPEG", []() { return std::make_unique<enim::JpegSource>(); }},
     {"PNG", []() { return std::make_unique<enim::PngSource>(); }},
-    {"QOI (Quite OK Image)", []() { return std::make_unique<enim::QoiSource>(); }}
+    {"QOI (Quite OK Image)", []() { return std::make_unique<enim::QoiSource>(); }},
+    {"TIFF", []() { return std::make_unique<enim::TiffSource>(); }},
+    {"BigTIFF", []() { return std::make_unique<enim::TiffSource>(); }},
 };
 
 } // namespace

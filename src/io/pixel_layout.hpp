@@ -3,6 +3,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 
 namespace enim {
 
@@ -42,6 +43,9 @@ struct ImageInfo {
     std::size_t width = 0;
     std::size_t height = 0;
     PixelLayout layout;
+    /// @brief Value range declared by the file (TIFF SMinSampleValue/SMaxSampleValue), mapped to [0, 1] for display
+    /// instead of the sample type's default range.
+    std::optional<std::array<float, 2>> range;
 };
 
 } // namespace enim

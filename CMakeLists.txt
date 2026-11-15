@@ -105,10 +105,76 @@ target_include_directories(spng PUBLIC third_party/libspng/spng)
 target_compile_definitions(spng PUBLIC SPNG_STATIC)
 target_link_libraries(spng PRIVATE zlib-ng-static)
 
-# decoding is the hot path: zlib-ng and libspng are optimized in Debug builds of enim too, like libjpeg-turbo
+# TIFF: libtiff over the codec libraries, all static and built in-tree: zlib-ng (Deflate, PixarLog), libjpeg-turbo
+# (JPEG 8/12-bit, old JPEG), zstd, liblzma (xz), libwebp and LERC. JBIG is left out: JBIG-KIT is GPL.
+# libtiff looks for each codec with find_package(); the modules in cmake/tiff/ come first in CMAKE_MODULE_PATH and
+# answer with the in-tree targets, so nothing is taken from the system and the build order follows the links.
+foreach (dir libtiff zstd xz libwebp lerc)
+    if (NOT EXISTS ${CMAKE_SOURCE_DIR}/third_party/${dir}/CMakeLists.txt AND NOT EXISTS ${CMAKE_SOURCE_DIR}/third_party/${dir}/build/cmake/CMakeLists.txt)
+        message(FATAL_ERROR "third_party/${dir} is empty: run git submodule update --init")
+    endif()
+endforeach()
+
+function(add_tiff)
+    set(CMAKE_POLICY_DEFAULT_CMP0077 NEW) # option() keeps the variables set here (libtiff and lerc predate 3.13)
+    set(BUILD_SHARED_LIBS OFF)
+    set(BUILD_TESTING OFF)
+
+    set(ZSTD_BUILD_SHARED OFF)
+    set(ZSTD_BUILD_STATIC ON)
+    set(ZSTD_BUILD_PROGRAMS OFF)
+    set(ZSTD_BUILD_TESTS OFF)
+    set(ZSTD_BUILD_CONTRIB OFF)
+    set(ZSTD_LEGACY_SUPPORT OFF)      # pre-1.0 frames: never in TIFF files
+    set(ZSTD_MULTITHREAD_SUPPORT OFF) # only used by the compressor
+    add_subdirectory(third_party/zstd/build/cmake ${CMAKE_BINARY_DIR}/zstd EXCLUDE_FROM_ALL)
+
+    set(XZ_NLS OFF)
+    set(XZ_DOC OFF)
+    foreach (tool XZ XZDEC LZMADEC LZMAINFO SCRIPTS SYMLINKS SYMLINKS_LZMA)
+        set(XZ_TOOL_${tool} OFF)
+    endforeach()
+    add_subdirectory(third_party/xz EXCLUDE_FROM_ALL)
+
+    foreach (tool ANIM_UTILS CWEBP DWEBP GIF2WEBP IMG2WEBP VWEBP WEBPINFO LIBWEBPMUX WEBPMUX EXTRAS)
+        set(WEBP_BUILD_${tool} OFF)
+    endforeach()
+    add_subdirectory(third_party/libwebp EXCLUDE_FROM_ALL)
+
+    add_subdirectory(third_party/lerc EXCLUDE_FROM_ALL)
+
+    set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/tiff)
+    set(jpeg-prefer-standard ON) # no find_package(libjpeg-turbo CONFIG): it would find a system copy
+    # libjpeg-turbo 3 has the 8/12-bit dual API; libtiff's check links against jpeglib, which isn't built yet
+    set(HAVE_JPEGTURBO_DUAL_MODE_8 1 CACHE INTERNAL "")
+    set(HAVE_JPEGTURBO_DUAL_MODE_12 1 CACHE INTERNAL "")
+    set(tiff-tools OFF)
+    set(tiff-tests OFF)
+    set(tiff-contrib OFF)
+    set(tiff-docs OFF)
+    set(tiff-deprecated OFF)
+    set(tiff-install OFF)
+    set(tiff-opengl OFF)
+    set(tiff-cxx OFF)
+    set(jbig OFF)
+    set(libdeflate OFF)
+    add_subdirectory(third_party/libtiff EXCLUDE_FROM_ALL)
+
+    foreach (codec ZIP_SUPPORT PIXARLOG_SUPPORT JPEG_SUPPORT OJPEG_SUPPORT HAVE_JPEGTURBO_DUAL_MODE_8_12
+                   ZSTD_SUPPORT LZMA_SUPPORT WEBP_SUPPORT LERC_SUPPORT)
+        get_directory_property(enabled DIRECTORY third_party/libtiff DEFINITION ${codec})
+        if (NOT enabled)
+            message(FATAL_ERROR "libtiff: ${codec} is not enabled")
+        endif()
+    endforeach()
+endfunction()
+add_tiff()
+
+# decoding is the hot path: the decoders are optimized in Debug builds of enim too, like libjpeg-turbo
 if (CMAKE_C_COMPILER_ID MATCHES "GNU|Clang" AND CMAKE_BUILD_TYPE STREQUAL "Debug")
-    target_compile_options(zlib-ng PRIVATE -O2)
-    target_compile_options(spng PRIVATE -O2)
+    foreach (target zlib-ng spng tiff libzstd_static liblzma webp sharpyuv Lerc)
+        target_compile_options(${target} PRIVATE -O2)
+    endforeach()
 endif()
 
 add_executable(enim
@@ -123,6 +189,8 @@ add_executable(enim
     src/io/formats/jpeg/jpeg_source.cpp
     src/io/formats/png/png_source.cpp
     src/io/formats/qoi/qoi_source.cpp
+    src/io/formats/tiff/tiff_convert.cpp
+    src/io/formats/tiff/tiff_source.cpp
     src/pipeline/pixel_converter.cpp
     src/pipeline/texture_upload_sink.cpp
     src/plan/load_plan.cpp
@@ -174,7 +242,7 @@ target_include_directories(enim PRIVATE
 )
 
 
-set(LIBS plog::plog glad jpeg spng)
+set(LIBS plog::plog glad jpeg spng tiff)
 
 if (WIN32)
     set(LIBS ${LIBS} opengl32 gdi32 shell32 user32 advapi32 comctl32)

@@ -23,6 +23,8 @@ std::size_t gpu_convert_band_bytes(const GpuLimits& gpu) {
 LoadPlan make_plan(const ImageInfo& info, const FormatCaps& caps, const GpuLimits& gpu, const Settings& settings) {
     LoadPlan plan;
     plan.display = default_display(info.layout);
+    if (info.range)
+        plan.display.range = {(*info.range)[0], (*info.range)[1]};
 
     TextureFormat tex = choose_texture_format(info.layout, plan.display);
 
